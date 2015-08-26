@@ -67,11 +67,13 @@ LockFile
 lstrlenA
 lstrlenW
 MapViewOfFile
+MetaDataGetDispenser
 MoveFileExW
 MultiByteToWideChar
 OpenEventW
 OpenMutexW
 OpenSemaphoreW
+OutputDebugStringW
 PAL_Random
 QueryPerformanceCounter  
 QueryPerformanceFrequency
