@@ -4775,8 +4775,8 @@ void SystemDomain::GetDevpathW(__out_ecount_opt(1) LPWSTR* pDevpath, DWORD* pdwD
                 RegKeyHolder userKey;
                 RegKeyHolder machineKey;
 
-                WCHAR pVersion[MAX_PATH];
-                DWORD dwVersion = MAX_PATH;
+                WCHAR pVersion[MAX_PATH_FNAME];
+                DWORD dwVersion = MAX_PATH_FNAME;
                 HRESULT hr = S_OK;
                 hr = FusionBind::GetVersion(pVersion, &dwVersion);
                 if(SUCCEEDED(hr)) {
@@ -11285,7 +11285,7 @@ BOOL AppDomain::StopEEAndUnwindThreads(unsigned int retryCount, BOOL *pFMarkUnlo
 
                 if (pThread->PreemptiveGCDisabledOther())
                 {
-        #ifdef FEATURE_HIJACK
+        #if defined(FEATURE_HIJACK) && !defined(PLATFORM_UNIX)
                     Thread::SuspendThreadResult str = pThread->SuspendThread();
                     if (str == Thread::STR_Success)
                     {

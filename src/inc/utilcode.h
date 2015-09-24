@@ -30,7 +30,12 @@
 #include "winnls.h"
 #include "check.h"
 #include "safemath.h"
+
+#ifdef PAL_STDCPP_COMPAT
+#include <type_traits>
+#else
 #include "clr_std/type_traits"
+#endif
 
 #include "contract.h"
 #include "entrypoints.h"
@@ -1157,7 +1162,7 @@ void    SplitPathInterior(
     __out_opt LPCWSTR *pwszFileName, __out_opt size_t *pcchFileName,
     __out_opt LPCWSTR *pwszExt,      __out_opt size_t *pcchExt);
 
-void    MakePath(__out_ecount (MAX_PATH) register WCHAR *path, 
+void    MakePath(__out_ecount (MAX_LONGPATH) register WCHAR *path, 
                  __in LPCWSTR drive, 
                  __in LPCWSTR dir, 
                  __in LPCWSTR fname, 

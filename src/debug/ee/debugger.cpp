@@ -1004,7 +1004,7 @@ Debugger::~Debugger()
     _ASSERTE(!"Debugger dtor should not be called.");   
 }
 
-#ifdef FEATURE_HIJACK
+#if defined(FEATURE_HIJACK) && !defined(PLATFORM_UNIX)
 typedef void (*PFN_HIJACK_FUNCTION) (void);
 
 // Given the start address and the end address of a function, return a MemoryRange for the function.
@@ -1026,16 +1026,16 @@ MemoryRange Debugger::s_hijackFunction[kMaxHijackFunctions] =
                                RedirectedHandledJITCaseForUserSuspend_StubEnd),
      GetMemoryRangeForFunction(RedirectedHandledJITCaseForYieldTask_Stub,
                                RedirectedHandledJITCaseForYieldTask_StubEnd)};
-#endif // FEATURE_HIJACK
+#endif // FEATURE_HIJACK && !PLATFORM_UNIX
 
 // Save the necessary information for the debugger to recognize an IP in one of the thread redirection 
 // functions.
 void Debugger::InitializeHijackFunctionAddress()
 {
-#ifdef FEATURE_HIJACK
+#if defined(FEATURE_HIJACK) && !defined(PLATFORM_UNIX)
     // Advertise hijack address for the DD Hijack primitive
     m_rgHijackFunction = Debugger::s_hijackFunction;
-#endif // FEATURE_HIJACK
+#endif // FEATURE_HIJACK && !PLATFORM_UNIX
 }
 
 // For debug-only builds, we'll have a debugging feature to count
@@ -2195,7 +2195,8 @@ HRESULT Debugger::StartupPhase2(Thread * pThread)
 
     // After returning from debugger startup we assume that the runtime might start using the NGEN flags to make
     // binding decisions. From now on the debugger can not influence NGEN binding policy
-    s_fCanChangeNgenFlags = FALSE;
+    // Use volatile store to guarantee make the value visible to the DAC (the store can be optimized out otherwise)
+    VolatileStoreWithoutBarrier(&s_fCanChangeNgenFlags, FALSE);
 
     // Must release the lock (which would be done at the end of this method anyways) so that
     // the helper thread can do the jit-attach.
@@ -6707,7 +6708,7 @@ DebuggerLaunchSetting Debugger::GetDbgJITDebugLaunchSetting()
 
     DebuggerLaunchSetting setting = DLS_ASK_USER;
 
-    DWORD cchDbgFormat = MAX_PATH;
+    DWORD cchDbgFormat = MAX_LONGPATH;
     INDEBUG(DWORD cchOldDbgFormat = cchDbgFormat);
 
 #if defined(DACCESS_COMPILE)
@@ -13481,7 +13482,7 @@ void STDCALL ExceptionHijackWorker(
     // call SetThreadContext on ourself to fix us.
 }
 
-#if defined(WIN64EXCEPTIONS)
+#if defined(WIN64EXCEPTIONS) && !defined(FEATURE_PAL)
 
 #if defined(_TARGET_AMD64_)
 // ----------------------------------------------------------------------------
@@ -13570,7 +13571,7 @@ ExceptionHijackPersonalityRoutine(IN     PEXCEPTION_RECORD   pExceptionRecord
     // exactly the behavior we want.
     return ExceptionCollidedUnwind;
 }
-#endif // WIN64EXCEPTIONS
+#endif // WIN64EXCEPTIONS && !FEATURE_PAL
 
 
 // UEF Prototype from excep.cpp
@@ -15135,7 +15136,7 @@ HRESULT Debugger::InitAppDomainIPC(void)
     } hEnsureCleanup(this);
 
     DWORD dwStrLen = 0;
-    WCHAR szExeName[MAX_PATH];
+    WCHAR szExeName[MAX_LONGPATH];
     int i;
 
     // all fields in the object can be zero initialized.
@@ -15185,7 +15186,7 @@ HRESULT Debugger::InitAppDomainIPC(void)
     // also initialize the process name
     dwStrLen = WszGetModuleFileName(NULL,
                                     szExeName,
-                                    MAX_PATH);
+                                    MAX_LONGPATH);
 
     // If we couldn't get the name, then use a nice default.
     if (dwStrLen == 0)
@@ -15405,7 +15406,11 @@ HRESULT Debugger::FuncEvalSetup(DebuggerIPCE_FuncEvalInfo *pEvalInfo,
 #if defined(_TARGET_X86_)
         filterContext->Eax = (DWORD)pDE;
 #elif defined(_TARGET_AMD64_)
+#ifdef UNIX_AMD64_ABI
+        filterContext->Rdi = (SIZE_T)pDE;
+#else // UNIX_AMD64_ABI
         filterContext->Rcx = (SIZE_T)pDE;
+#endif // !UNIX_AMD64_ABI
 #elif defined(_TARGET_ARM_)
         filterContext->R0 = (DWORD)pDE;
 #else

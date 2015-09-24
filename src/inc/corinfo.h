@@ -189,7 +189,9 @@ TODO: Talk about initializing strutures before use
 #include <corhdr.h>
 #include <specstrings.h>
 
+// For System V on the CLR type system number of registers to pass in and return a struct is the same.
 #define SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_PASS_IN_REGISTERS   2
+#define SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_RETURN_IN_REGISTERS SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_PASS_IN_REGISTERS
 #define SYSTEMV_MAX_STRUCT_BYTES_TO_PASS_IN_REGISTERS       16
 
 // System V struct passing
@@ -219,7 +221,7 @@ struct SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR
     }
 
     bool                        canPassInRegisters;
-    unsigned int                numberEightBytes;
+    unsigned int                eightByteCount;
     SystemVClassificationType   eightByteClassifications[SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_PASS_IN_REGISTERS];
     unsigned int                eightByteSizes[SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_PASS_IN_REGISTERS];
     unsigned int                eightByteOffsets[SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_PASS_IN_REGISTERS];
@@ -228,7 +230,7 @@ struct SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR
     void Initialize()
     {
         canPassInRegisters = false;
-        numberEightBytes = false;
+        eightByteCount = 0;
 
         for (int i = 0; i < SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_PASS_IN_REGISTERS; i++)
         {
@@ -601,6 +603,8 @@ enum CorInfoHelpFunc
 
     CORINFO_HELP_COUNT,
 };
+
+#define CORINFO_HELP_READYTORUN_ATYPICAL_CALLSITE 0x40000000
 
 //This describes the signature for a helper method.
 enum CorInfoHelpSig
@@ -1111,6 +1115,7 @@ enum CORINFO_ACCESS_FLAGS
     CORINFO_ACCESS_SET        = 0x0200, // Field set (stfld)
     CORINFO_ACCESS_ADDRESS    = 0x0400, // Field address (ldflda)
     CORINFO_ACCESS_INIT_ARRAY = 0x0800, // Field use for InitializeArray
+    CORINFO_ACCESS_ATYPICAL_CALLSITE = 0x4000, // Atypical callsite that cannot be disassembled by delay loading helper
     CORINFO_ACCESS_INLINECHECK= 0x8000, // Return fieldFlags and fieldAccessor only. Used by JIT64 during inlining.
 };
 
@@ -1759,6 +1764,7 @@ enum CORINFO_CALLINFO_FLAGS
     CORINFO_CALLINFO_VERIFICATION   = 0x0008,   // Gets extra verification information.
     CORINFO_CALLINFO_SECURITYCHECKS = 0x0010,   // Perform security checks.
     CORINFO_CALLINFO_LDFTN          = 0x0020,   // Resolving target of LDFTN
+    CORINFO_CALLINFO_ATYPICAL_CALLSITE = 0x0040, // Atypical callsite that cannot be disassembled by delay loading helper
 };
 
 enum CorInfoIsAccessAllowedResult
@@ -2023,7 +2029,12 @@ enum { LCL_FINALLY_MARK = 0xFC }; // FC = "Finally Call"
 #define CORINFO_PAGE_SIZE   0x1000                           // the page size on the machine
 
 // <TODO>@TODO: put this in the CORINFO_EE_INFO data structure</TODO>
+
+#ifndef FEATURE_PAL
 #define MAX_UNCHECKED_OFFSET_FOR_NULL_OBJECT ((32*1024)-1)   // when generating JIT code
+#else // !FEATURE_PAL
+#define MAX_UNCHECKED_OFFSET_FOR_NULL_OBJECT ((OS_PAGE_SIZE / 2) - 1)
+#endif // !FEATURE_PAL
 
 typedef void* CORINFO_MethodPtr;            // a generic method pointer
 

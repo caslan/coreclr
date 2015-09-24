@@ -184,9 +184,11 @@ public:
 
     static void InitializeCrawlFrame(CrawlFrame* pcfThisFrame, Thread* pThread, StackFrame sf, REGDISPLAY* pRD, 
                                      PT_DISPATCHER_CONTEXT pDispatcherContext, DWORD_PTR ControlPCForEHSearch, 
-                                     UINT_PTR* puMethodStartPC
-                                     ARM_ARG(ExceptionTracker *pCurrentTracker)
-                                     ARM64_ARG(ExceptionTracker *pCurrentTracker));
+                                     UINT_PTR* puMethodStartPC,
+                                     ExceptionTracker *pCurrentTracker);
+    
+    void InitializeCurrentContextForCrawlFrame(CrawlFrame* pcfThisFrame, PT_DISPATCHER_CONTEXT pDispatcherContext, StackFrame sfEstablisherFrame);
+
     static void InitializeCrawlFrameForExplicitFrame(CrawlFrame* pcfThisFrame, Frame* pFrame, MethodDesc *pMD);
 
 #ifndef DACCESS_COMPILE
@@ -550,6 +552,13 @@ public:
         LIMITED_METHOD_CONTRACT;
     
         return m_sfCallerOfActualHandlerFrame;
+    }
+
+    StackFrame GetCallerOfCollapsedActualHandlingFrame()
+    {
+        LIMITED_METHOD_CONTRACT;
+
+        return m_EnclosingClauseInfoOfCollapsedTracker.GetEnclosingClauseCallerSP();
     }
 
 #ifndef FEATURE_PAL          

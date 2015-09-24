@@ -37,7 +37,7 @@ typedef struct _find_handle
     struct _find_handle *self_addr; /* for pointer verification */
 
     char   dir[_MAX_DIR];
-    char   fname[_MAX_PATH]; /* includes extension */
+    char   fname[MAX_PATH_FNAME]; /* includes extension */
     glob_t gGlob;
     char   **next;
 } find_obj;
@@ -166,7 +166,7 @@ Input paramters:
 source  = path to the file on input, path to the file with all 
           symbolic links traversed on return
 
-Note: Assumes the maximum size of the source is MAX_PATH
+Note: Assumes the maximum size of the source is MAX_LONGPATH
 
 Return value:
     TRUE on success, FALSE on failure

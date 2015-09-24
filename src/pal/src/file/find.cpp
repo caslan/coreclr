@@ -144,10 +144,10 @@ FindFirstFileA(
         dwLastError = ERROR_INVALID_PARAMETER;
         goto done;
     }                                        
-    if (strlen(lpFileName) >= MAX_PATH)
+    if (strlen(lpFileName) >= MAX_LONGPATH)
     {
         WARN("FindFirstFileA called with a pattern whose size is "
-             "%d >= MAX_PATH (%d)\n", strlen(lpFileName), MAX_PATH);
+             "%d >= MAX_LONGPATH (%d)\n", strlen(lpFileName), MAX_LONGPATH);
         dwLastError = ERROR_FILENAME_EXCED_RANGE;
         goto done;
     }
@@ -265,8 +265,9 @@ FindFirstFileW(
            IN LPCWSTR lpFileName,
            OUT LPWIN32_FIND_DATAW lpFindFileData)
 {
+    // MAX_PATH_FNAME in this context is a file name, not a full path to a file.
     HANDLE retval = INVALID_HANDLE_VALUE;
-    CHAR FileNameA[MAX_PATH];
+    CHAR FileNameA[MAX_PATH_FNAME];
     WIN32_FIND_DATAA FindFileDataA;
         
     PERF_ENTRY(FindFirstFileW);
@@ -286,13 +287,14 @@ FindFirstFileW(
         ERROR("lpFindFileData is NULL!\n");
         SetLastError(ERROR_INVALID_PARAMETER);
         goto done;
-    }                                        
+    }
     if( 0 == WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, lpFileName, -1, 
-                                 FileNameA, MAX_PATH, NULL, NULL))
+                                 FileNameA, MAX_PATH_FNAME, NULL, NULL))
     {
         DWORD dwLastError = GetLastError();
         if (dwLastError == ERROR_INSUFFICIENT_BUFFER)
         {
+            WARN("lpFileName is larger than MAX_PATH_FNAME (%d)!\n", MAX_PATH_FNAME);
             SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -323,11 +325,12 @@ FindFirstFileW(
     lpFindFileData->cAlternateFileName[0] = 0;
 
     if( 0 == MultiByteToWideChar(CP_ACP, 0, FindFileDataA.cFileName, -1,
-                                 lpFindFileData->cFileName, MAX_PATH))
+                                 lpFindFileData->cFileName, MAX_PATH_FNAME))
     {
         DWORD dwLastError = GetLastError();
         if (dwLastError == ERROR_INSUFFICIENT_BUFFER)
         {
+            WARN("FindFileDataA.cFileName is larger than MAX_PATH_FNAME (%d)!\n", MAX_PATH_FNAME);
             SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -515,16 +518,17 @@ FindNextFileW(
     lpFindFileData->ftLastWriteTime = FindFileDataA.ftLastWriteTime;
     lpFindFileData->nFileSizeHigh = FindFileDataA.nFileSizeHigh;
     lpFindFileData->nFileSizeLow = FindFileDataA.nFileSizeLow;
-    
+
     /* no 8.3 file names */
     lpFindFileData->cAlternateFileName[0] = 0;
-    
+
     if( 0 == MultiByteToWideChar(CP_ACP, 0, FindFileDataA.cFileName, -1, 
-                                 lpFindFileData->cFileName, MAX_PATH))
+                                 lpFindFileData->cFileName, MAX_PATH_FNAME))
     {
         DWORD dwLastError = GetLastError();
         if (dwLastError == ERROR_INSUFFICIENT_BUFFER)
         {
+            WARN("FindFileDataA.cFileName is larger than MAX_PATH_FNAME (%d)!\n", MAX_PATH_FNAME);
             SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -533,7 +537,7 @@ FindNextFileW(
             SetLastError(ERROR_INTERNAL_ERROR);
         }
         retval = FALSE;
-    }                            
+    }
 
 done:
     LOGEXIT("FindNextFileW returns BOOL %d\n", retval);
@@ -773,13 +777,13 @@ static int FILEGlobFromSplitPath( CPalThread *pthrCurrent,
                                   glob_t *pgGlob )
 {
     int  Ret;
-    char Pattern[MAX_PATH];
-    char EscapedPattern[2*MAX_PATH];
+    char Pattern[MAX_LONGPATH];
+    char EscapedPattern[2*MAX_LONGPATH];
 
     TRACE("We shall attempt to glob from components [%s][%s][%s]\n",
           dir?dir:"NULL", fname?fname:"NULL", ext?ext:"NULL");
 
-    FILEMakePathA( Pattern, MAX_PATH, dir, fname, ext );
+    FILEMakePathA( Pattern, MAX_LONGPATH, dir, fname, ext );
     TRACE("Assembled Pattern = [%s]\n", Pattern);
 
     /* special handling is needed to handle the case where

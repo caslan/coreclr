@@ -288,7 +288,7 @@ FCIMPL0(StringObject*, SystemNative::_GetModuleFileName)
 {
     FCALL_CONTRACT;
 
-    WCHAR wszFile[MAX_PATH];
+    WCHAR wszFile[MAX_LONGPATH];
     STRINGREF   refRetVal   = NULL;
     LPCWSTR pFileName = NULL;
     DWORD lgth = 0;
@@ -301,7 +301,7 @@ FCIMPL0(StringObject*, SystemNative::_GetModuleFileName)
     else
     {
         HELPER_METHOD_FRAME_BEGIN_RET_1(refRetVal);
-        lgth = WszGetModuleFileName(NULL, wszFile, MAX_PATH);
+        lgth = WszGetModuleFileName(NULL, wszFile, MAX_LONGPATH);
         if (!lgth)
         {
             COMPlusThrowWin32();
@@ -310,9 +310,9 @@ FCIMPL0(StringObject*, SystemNative::_GetModuleFileName)
         pFileName = wszFile;
     }
 
-    if(lgth) 
+    if(lgth)
     {
-        HELPER_METHOD_FRAME_BEGIN_RET_1(refRetVal);       
+        HELPER_METHOD_FRAME_BEGIN_RET_1(refRetVal);
         refRetVal = StringObject::NewString(pFileName, lgth);
         HELPER_METHOD_FRAME_END();
     }
@@ -347,9 +347,9 @@ FCIMPL0(StringObject*, SystemNative::GetRuntimeDirectory)
 {
     FCALL_CONTRACT;
 
-    wchar_t wszFile[MAX_PATH+1];
+    wchar_t wszFile[MAX_LONGPATH+1];
     STRINGREF   refRetVal   = NULL;
-    DWORD dwFile = MAX_PATH+1;
+    DWORD dwFile = MAX_LONGPATH+1;
 
     HELPER_METHOD_FRAME_BEGIN_RET_1(refRetVal);
 

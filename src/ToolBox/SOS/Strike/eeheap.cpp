@@ -38,15 +38,15 @@ void HeapStat::Add(DWORD_PTR aData, DWORD aSize)
         
         if (bHasStrings)
         {
-            size_t capacity_pNew = wcslen((wchar_t*)aData) + 1;
-            wchar_t *pNew = new wchar_t[capacity_pNew];
+            size_t capacity_pNew = _wcslen((WCHAR*)aData) + 1;
+            WCHAR *pNew = new WCHAR[capacity_pNew];
             if (pNew == NULL)
             {
                ReportOOM();               
                ControlC = TRUE;
                return;
             }
-            wcscpy_s(pNew, capacity_pNew, (wchar_t*)aData);
+            wcscpy_s(pNew, capacity_pNew, (WCHAR*)aData);
             aData = (DWORD_PTR)pNew;            
         }
 
@@ -96,15 +96,15 @@ void HeapStat::Add(DWORD_PTR aData, DWORD aSize)
 
         if (bHasStrings)
         {
-            size_t capacity_pNew = wcslen((wchar_t*)aData) + 1;
-            wchar_t *pNew = new wchar_t[capacity_pNew];
+            size_t capacity_pNew = _wcslen((WCHAR*)aData) + 1;
+            WCHAR *pNew = new WCHAR[capacity_pNew];
             if (pNew == NULL)
             {
                ReportOOM();
                ControlC = TRUE;
                return;
             }
-            wcscpy_s(pNew, capacity_pNew, (wchar_t*)aData);
+            wcscpy_s(pNew, capacity_pNew, (WCHAR*)aData);
             aData = (DWORD_PTR)pNew;            
         }
         
@@ -131,7 +131,7 @@ void HeapStat::Add(DWORD_PTR aData, DWORD aSize)
 int HeapStat::CompareData(DWORD_PTR d1, DWORD_PTR d2)
 {
     if (bHasStrings)
-        return wcscmp((wchar_t*)d1, (wchar_t*)d2);
+        return _wcscmp((WCHAR*)d1, (WCHAR*)d2);
 
     if (d1 > d2)
         return 1;
@@ -329,7 +329,7 @@ void HeapStat::Delete()
         head = head->right;
 
         if (bHasStrings)
-            delete[] ((wchar_t*)tmp->data);
+            delete[] ((WCHAR*)tmp->data);
         delete tmp;
     }
 
@@ -433,8 +433,6 @@ size_t AlignLarge(size_t nbytes)
 {
     return (nbytes + ALIGNCONSTLARGE) & ~ALIGNCONSTLARGE;
 }
-
-#ifndef FEATURE_PAL
 
 /**********************************************************************\
 * Routine Description:                                                 *
@@ -850,8 +848,6 @@ BOOL GCHeapUsageStats(const DacpGcHeapDetails& heap, BOOL bIncUnreachable, HeapU
 
     return TRUE;
 }
-
-#endif // FEATURE_PAL
 
 DWORD GetNumComponents(TADDR obj)
 {
@@ -1576,7 +1572,6 @@ int GCHeapSnapshot::GetGeneration(CLRDATA_ADDRESS objectPointer)
     return 2;
 }
 
-#ifndef FEATURE_PAL
 
 DWORD_PTR g_trav_totalSize = 0;
 DWORD_PTR g_trav_wastedSize = 0;
@@ -1720,6 +1715,7 @@ DWORD_PTR JitHeapInfo()
 
     return totalSize;
 }
+
 
 /**********************************************************************\
 * Routine Description:                                                 *
@@ -1915,5 +1911,3 @@ DWORD_PTR PrintModuleHeapInfo(__out_ecount(count) DWORD_PTR *moduleList, int cou
 
     return toReturn;
 }
-
-#endif // !FEATURE_PAL

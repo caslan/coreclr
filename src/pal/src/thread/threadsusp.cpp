@@ -48,6 +48,7 @@ Revision History:
 #include <stddef.h>
 #include <sys/stat.h>
 #include <limits.h>
+#include <debugmacrosext.h>
 
 #if defined(_AIX)
 // AIX requires explicit definition of the union semun (see semctl man page)
@@ -350,7 +351,7 @@ CThreadSuspensionInfo::InternalSuspendThreadFromData(
                 {
                     if (!fSelfSuspend)
                     {
-                        pthrTarget->suspensionInfo.WaitOnSuspendSemaphore();                        
+                        pthrTarget->suspensionInfo.WaitOnSuspendSemaphore();
                     }
                 }
                 else
@@ -381,7 +382,7 @@ CThreadSuspensionInfo::InternalSuspendThreadFromData(
                     if (fSelfSuspend)
                     {
                         pthrTarget->suspensionInfo.DecrSuspCount();
-                        pthrTarget->suspensionInfo.SetSelfSusp(FALSE);                        
+                        pthrTarget->suspensionInfo.SetSelfSusp(FALSE);
                         ReleaseSuspensionLock(pthrTarget);
                     }
                     else
@@ -467,7 +468,7 @@ CThreadSuspensionInfo::InternalSuspendThreadFromData(
     }
 
     pthrSuspender->suspensionInfo.SetPerformingSuspension(FALSE);
-    
+
     return palError;
 }
 
@@ -840,7 +841,8 @@ CThreadSuspensionInfo::AcquireSuspensionLock(
     }
     #else // DEADLOCK_WHEN_THREAD_IS_SUSPENDED_WHILE_BLOCKED_ON_MUTEX
     {
-        int iPthreadError = pthread_mutex_lock(&pthrCurrent->suspensionInfo.m_ptmSuspmutex);
+        INDEBUG(int iPthreadError = )
+        pthread_mutex_lock(&pthrCurrent->suspensionInfo.m_ptmSuspmutex);
         _ASSERT_MSG(iPthreadError == 0, "pthread_mutex_lock returned %d\n", iPthreadError);
     }
     #endif // DEADLOCK_WHEN_THREAD_IS_SUSPENDED_WHILE_BLOCKED_ON_MUTEX
@@ -873,7 +875,8 @@ CThreadSuspensionInfo::ReleaseSuspensionLock(
     }
     #else // DEADLOCK_WHEN_THREAD_IS_SUSPENDED_WHILE_BLOCKED_ON_MUTEX 
     {
-        int iPthreadError = pthread_mutex_unlock(&pthrCurrent->suspensionInfo.m_ptmSuspmutex);
+        INDEBUG(int iPthreadError = )
+        pthread_mutex_unlock(&pthrCurrent->suspensionInfo.m_ptmSuspmutex);
         _ASSERT_MSG(iPthreadError == 0, "pthread_mutex_unlock returned %d\n", iPthreadError);
     }
     #endif // DEADLOCK_WHEN_THREAD_IS_SUSPENDED_WHILE_BLOCKED_ON_MUTEX 
@@ -1018,7 +1021,7 @@ CThreadSuspensionInfo::PostOnSuspendSemaphore()
 
     // The suspending thread may not have entered the wait yet, in which case the cond var
     // signal below will be a no-op. To prevent the race condition we set m_fSuspended to
-    // TRUE first (which the suspender will take as am indication that no wait is required).
+    // TRUE first (which the suspender will take as an indication that no wait is required).
     // But the setting of the flag and the signal must appear atomic to the suspender (as
     // reading the flag and potentially waiting must appear to us) to avoid the race
     // condition where the suspender reads the flag as FALSE, we set it and signal and the
@@ -1128,7 +1131,7 @@ CThreadSuspensionInfo::PostOnResumeSemaphore()
 
     // The resuming thread may not have entered the wait yet, in which case the cond var
     // signal below will be a no-op. To prevent the race condition we set m_fResumed to
-    // TRUE first (which the resumer will take as am indication that no wait is required).
+    // TRUE first (which the resumer will take as an indication that no wait is required).
     // But the setting of the flag and the signal must appear atomic to the resumer (as
     // reading the flag and potentially waiting must appear to us) to avoid the race
     // condition where the resumer reads the flag as FALSE, we set it and signal and the
@@ -1349,7 +1352,7 @@ CThreadSuspensionInfo::InitializeSignalSets()
     sigfillset(&smContmask);
     sigdelset(&smContmask, SIGUSR1);
 
-    // smSuspmask is used in sigsuspend during a safe suspension attept.
+    // smSuspmask is used in sigsuspend during a safe suspension attempt.
     sigfillset(&smSuspmask);
     sigdelset(&smSuspmask, SIGUSR2);
 
@@ -1583,10 +1586,11 @@ InitializePreCreateExit:
 
 CThreadSuspensionInfo::~CThreadSuspensionInfo()
 {
-#if !DEADLOCK_WHEN_THREAD_IS_SUSPENDED_WHILE_BLOCKED_ON_MUTEX                
+#if !DEADLOCK_WHEN_THREAD_IS_SUSPENDED_WHILE_BLOCKED_ON_MUTEX
     if (m_fSuspmutexInitialized)
     {
-        int iError = pthread_mutex_destroy(&m_ptmSuspmutex);
+        INDEBUG(int iError = )
+        pthread_mutex_destroy(&m_ptmSuspmutex);
         _ASSERT_MSG(0 == iError, "pthread_mutex_destroy returned %d (%s)\n", iError, strerror(iError));
     }
 #endif
@@ -1768,7 +1772,7 @@ CThreadSuspensionInfo::HandleSuspendSignal(
     else
     {
         SetSuspPending(TRUE);
-    }	
+    }
 
     return true;
 }
@@ -1816,6 +1820,7 @@ CThreadSuspensionInfo::HandleResumeSignal()
 
     return true;
 }
+
 #else // USE_SIGNALS_FOR_THREAD_SUSPENSION
 
 /*++
@@ -1893,7 +1898,7 @@ CThreadSuspensionInfo::THREADHandleResumeNative(CPalThread *pthrTarget)
     
     /* The do-while loop is necessary for self suspension situations. 
     After a self suspending thread (thread A) releases its mutex, 
-    there is a small window between it's handle being returned from CreateThread 
+    there is a small window between its handle being returned from CreateThread 
     (making it possible for other threads to perform suspension and resumption 
     operations on it) and the thread actually being suspended. 
     During the window, another thread (thread B) may call ResumeThread on A. 

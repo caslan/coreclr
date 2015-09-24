@@ -6,9 +6,11 @@ set __BuildArch=x64
 set __BuildType=Debug
 set __BuildOS=Windows_NT
 
-:: Default to VS2013
-set __VSVersion=VS2013
-set __VSProductVersion=120
+:: Default to highest Visual Studio version available
+set __VSVersion=vs2015
+
+if defined VS120COMNTOOLS set __VSVersion=vs2013
+if defined VS140COMNTOOLS set __VSVersion=vs2015
 
 :: Set the various build properties here so that CMake and MSBuild can pick them up
 set "__ProjectDir=%~dp0"
@@ -39,8 +41,8 @@ if /i "%1" == "linuxmscorlib" (set __MscorlibOnly=1&set __BuildOS=Linux&shift&go
 if /i "%1" == "osxmscorlib" (set __MscorlibOnly=1&set __BuildOS=OSX&shift&goto Arg_Loop)
 if /i "%1" == "windowsmscorlib" (set __MscorlibOnly=1&set __BuildOS=Windows_NT&shift&goto Arg_Loop)
 
-if /i "%1" == "vs2013" (set __VSVersion=%1&set __VSProductVersion=120&shift&goto Arg_Loop)
-if /i "%1" == "vs2015" (set __VSVersion=%1&set __VSProductVersion=140&shift&goto Arg_Loop)
+if /i "%1" == "vs2013" (set __VSVersion=%1&shift&goto Arg_Loop)
+if /i "%1" == "vs2015" (set __VSVersion=%1&shift&goto Arg_Loop)
 if /i "%1" == "skiptestbuild" (set __SkipTestBuild=1&shift&goto Arg_Loop)
 
 echo Invalid commandline argument: %1
@@ -97,6 +99,11 @@ for /f "delims=" %%a in ('powershell -NoProfile -ExecutionPolicy RemoteSigned "&
 goto CheckVS
 
 :CheckVS
+
+set __VSProductVersion=
+if /i "%__VSVersion%" == "vs2013" set __VSProductVersion=120
+if /i "%__VSVersion%" == "vs2015" set __VSProductVersion=140
+
 :: Check presence of VS
 if defined VS%__VSProductVersion%COMNTOOLS goto CheckVSExistence
 echo Visual Studio 2013+ (Community is free) is a pre-requisite to build this repository.
@@ -188,7 +195,7 @@ call "!VS%__VSProductVersion%COMNTOOLS!\VsDevCmd.bat"
 echo Commencing build of mscorlib for %__BuildOS%.%__BuildArch%.%__BuildType%
 echo.
 set "__MScorlibBuildLog=%__LogsDir%\MScorlib_%__BuildOS%__%__BuildArch%__%__BuildType%.log"
-%_msbuildexe% "%__ProjectFilesDir%\build.proj" %__MSBCleanBuildArgs% /nologo /maxcpucount /verbosity:minimal /nodeReuse:false /fileloggerparameters:Verbosity=normal;LogFile="%__MScorlibBuildLog%" /p:OSGroup=%__BuildOS% %__AdditionalMSBuildArgs%
+%_msbuildexe% "%__ProjectFilesDir%\build.proj" %__MSBCleanBuildArgs% /nologo /maxcpucount /verbosity:minimal /nodeReuse:false /fileloggerparameters:Verbosity=normal;LogFile="%__MScorlibBuildLog%" %__AdditionalMSBuildArgs%
 IF NOT ERRORLEVEL 1 (
   if defined __MscorlibOnly exit /b 0
   goto CrossGenMscorlib
@@ -201,7 +208,7 @@ exit /b 1
 echo Generating native image of mscorlib for %__BuildOS%.%__BuildArch%.%__BuildType%
 echo.
 set "__CrossGenMScorlibLog=%__LogsDir%\CrossgenMScorlib_%__BuildOS%__%__BuildArch%__%__BuildType%.log"
-%__BinDir%\crossgen.exe %__BinDir%\mscorlib.dll > "%__CrossGenMScorlibLog%" 2>&1
+"%__BinDir%\crossgen.exe" "%__BinDir%\mscorlib.dll" > "%__CrossGenMScorlibLog%" 2>&1
 IF NOT ERRORLEVEL 1 (
   goto PerformTestBuild
 )
@@ -240,7 +247,7 @@ echo.
 echo BuildArch can be: x64, x86
 echo BuildType can be: Debug, Release
 echo Clean - optional argument to force a clean build.
-echo VSVersion - optional argument to use VS2013 or VS2015 (default VS2013)
+echo VSVersion - optional argument to use VS2013 or VS2015 (default VS2015)
 echo windowsmscorlib - Build mscorlib for Windows
 echo linuxmscorlib - Build mscorlib for Linux
 echo osxmscorlib - Build mscorlib for OS X

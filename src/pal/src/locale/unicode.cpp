@@ -45,6 +45,8 @@ Revision History:
 #include <corefoundation/corefoundation.h>
 #endif // HAVE_COREFOUNDATION
 
+#include <debugmacrosext.h>
+
 using namespace CorUnix;
 
 SET_DEFAULT_DEBUG_CHANNEL(UNICODE);
@@ -951,7 +953,7 @@ EXIT:
     return retval;
 }
 
-extern char g_szCoreCLRPath[MAX_PATH];
+extern char g_szCoreCLRPath[MAX_LONGPATH];
 
 /*++
 Function :
@@ -965,10 +967,12 @@ PALAPI
 PAL_BindResources(IN LPCSTR lpDomain)
 {
 #ifndef __APPLE__
-    char coreCLRDirectoryPath[MAX_PATH];
+    char coreCLRDirectoryPath[MAX_LONGPATH];
 
-    DWORD size = FILEGetDirectoryFromFullPathA(g_szCoreCLRPath, MAX_PATH, coreCLRDirectoryPath);
-    _ASSERTE(size <= MAX_PATH);
+    INDEBUG(DWORD size = )
+    FILEGetDirectoryFromFullPathA(g_szCoreCLRPath, MAX_LONGPATH, coreCLRDirectoryPath);
+    _ASSERTE(size <= MAX_LONGPATH);
+
     LPCSTR boundPath = bindtextdomain(lpDomain, coreCLRDirectoryPath);
 
     return boundPath != NULL;

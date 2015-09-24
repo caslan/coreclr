@@ -46,7 +46,6 @@ Revision History:
 #define E_UNEXPECTED                     _HRESULT_TYPEDEF_(0x8000FFFFL)
 #define E_OUTOFMEMORY                    _HRESULT_TYPEDEF_(0x8007000EL)
 #define E_INVALIDARG                     _HRESULT_TYPEDEF_(0x80070057L)
-#define E_INVALIDARG                     _HRESULT_TYPEDEF_(0x80070057L)
 #define E_POINTER                        _HRESULT_TYPEDEF_(0x80004003L)
 #define E_HANDLE                         _HRESULT_TYPEDEF_(0x80070006L)
 #define E_ABORT                          _HRESULT_TYPEDEF_(0x80004004L)
@@ -139,6 +138,7 @@ typedef enum tagEFaultRepRetVal
 
 #include "pal.h"
 
+#ifndef PAL_STDCPP_COMPAT
 #ifdef __cplusplus
 #ifndef __PLACEMENT_NEW_INLINE
 #define __PLACEMENT_NEW_INLINE
@@ -147,7 +147,8 @@ inline void *__cdecl operator new(size_t, void *_P)
     return (_P);
 }
 #endif // __PLACEMENT_NEW_INLINE
-#endif
+#endif // __cplusplus
+#endif // !PAL_STDCPP_COMPAT
 
 #include <pal_assert.h>
 
@@ -225,11 +226,15 @@ inline void *__cdecl operator new(size_t, void *_P)
 
 #if defined(__GNUC__) && (__GNUC__ == 3 && __GNUC_MINOR__ >= 5 || __GNUC__ > 3)
 #define FIELD_OFFSET(type, field) __builtin_offsetof(type, field)
+#ifndef offsetof
 #define offsetof(type, field) __builtin_offsetof(type, field)
+#endif
 #define PAL_safe_offsetof(type, field) __builtin_offsetof(type, field)
 #else
 #define FIELD_OFFSET(type, field) (((LONG)(LONG_PTR)&(((type *)64)->field)) - 64)
+#ifndef offsetof
 #define offsetof(s,m)          ((size_t)((ptrdiff_t)&(((s *)64)->m)) - 64)
+#endif
 #define PAL_safe_offsetof(s,m) ((size_t)((ptrdiff_t)&(char&)(((s *)64)->m))-64)
 #endif
 
@@ -1703,8 +1708,6 @@ typedef LONG (WINAPI *PTOP_LEVEL_EXCEPTION_FILTER)(
     IN struct _EXCEPTION_POINTERS *ExceptionInfo
     );
 typedef PTOP_LEVEL_EXCEPTION_FILTER LPTOP_LEVEL_EXCEPTION_FILTER;
-
-BOOL PAL_VirtualUnwind(CONTEXT *context, KNONVOLATILE_CONTEXT_POINTERS *contextPointers);
 
 /******************* ntdef ************************************/
 

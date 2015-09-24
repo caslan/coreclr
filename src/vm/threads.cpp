@@ -1691,6 +1691,8 @@ void InitThreadManager()
     // Randomize OBJREF_HASH to handle hash collision.
     Thread::OBJREF_HASH = OBJREF_TABSIZE - (DbgGetEXETimeStamp()%10);
 #endif // _DEBUG
+
+    ThreadSuspend::Initialize();
 }
 
 
@@ -1921,9 +1923,11 @@ Thread::Thread()
 
     m_dwLockCount = 0;
     m_dwBeginLockCount = 0;
+#ifndef FEATURE_CORECLR
     m_dwBeginCriticalRegionCount = 0;
     m_dwCriticalRegionCount = 0;
     m_dwThreadAffinityCount = 0;
+#endif // !FEATURE_CORECLR
 
 #ifdef _DEBUG
     dbg_m_cSuspendedThreads = 0;
@@ -2021,6 +2025,7 @@ Thread::Thread()
 #ifdef FEATURE_HIJACK
     m_ppvHJRetAddrPtr = (VOID**) 0xCCCCCCCCCCCCCCCC;
     m_pvHJRetAddr = (VOID*) 0xCCCCCCCCCCCCCCCC;
+
     X86_ONLY(m_LastRedirectIP = 0);
     X86_ONLY(m_SpinCount = 0);
 #endif // FEATURE_HIJACK
@@ -5521,6 +5526,37 @@ OBJECTREF Thread::SafeSetThrowables(OBJECTREF throwable DEBUG_ARG(ThreadExceptio
     return ret;
 }
 
+// This method will sync the managed exception state to be in sync with the topmost active exception
+// for a given thread
+void Thread::SyncManagedExceptionState(bool fIsDebuggerThread)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+    {
+        GCX_COOP();
+
+        // Syncup the LastThrownObject on the managed thread
+        SafeUpdateLastThrownObject();
+    }
+
+#ifdef FEATURE_CORRUPTING_EXCEPTIONS
+    // Since the catch clause has successfully executed and we are exiting it, reset the corruption severity
+    // in the ThreadExceptionState for the last active exception. This will ensure that when the next exception
+    // gets thrown/raised, EH tracker wont pick up an invalid value.
+    if (!fIsDebuggerThread)
+    {
+        CEHelper::ResetLastActiveCorruptionSeverityPostCatchHandler(this);
+    }
+#endif // FEATURE_CORRUPTING_EXCEPTIONS
+
+}
+
 void Thread::SetLastThrownObjectHandle(OBJECTHANDLE h)
 {
     CONTRACTL
@@ -8749,9 +8785,12 @@ void Thread::EnterContextRestricted(Context *pContext, ContextTransitionFrame *p
 
     if (pPrevDomain != pDomain)
     {
-    pFrame->SetLockCount(m_dwBeginLockCount, m_dwBeginCriticalRegionCount);
-    m_dwBeginLockCount = m_dwLockCount;
-    m_dwBeginCriticalRegionCount = m_dwCriticalRegionCount;
+        pFrame->SetLockCount(m_dwBeginLockCount);
+        m_dwBeginLockCount = m_dwLockCount;
+#ifndef FEATURE_CORECLR
+        pFrame->SetCriticalRegionCount(m_dwBeginCriticalRegionCount);
+        m_dwBeginCriticalRegionCount = m_dwCriticalRegionCount;
+#endif // !FEATURE_CORECLR
     }
 
     if (m_Context == pContext) {
@@ -8934,9 +8973,12 @@ void Thread::ReturnToContext(ContextTransitionFrame *pFrame)
         }
 
         m_dwLockCount = m_dwBeginLockCount;
+        m_dwBeginLockCount = pFrame->GetLockCount();
+#ifndef FEATURE_CORECLR
         m_dwCriticalRegionCount = m_dwBeginCriticalRegionCount;
+        m_dwBeginCriticalRegionCount = pFrame->GetCriticalRegionCount();
+#endif // !FEATURE_CORECLR
 
-        pFrame->GetLockCount(&m_dwBeginLockCount, &m_dwBeginCriticalRegionCount);
     }
 
     if (m_Context == pReturnContext)
@@ -11732,11 +11774,13 @@ void Thread::InternalReset(BOOL fFull, BOOL fNotFinalizerThread, BOOL fThreadObj
         FullResetThread();
     }
 
+#ifndef FEATURE_CORECLR
     _ASSERTE (m_dwCriticalRegionCount == 0);
     m_dwCriticalRegionCount = 0;
 
     _ASSERTE (m_dwThreadAffinityCount == 0);
     m_dwThreadAffinityCount = 0;
+#endif // !FEATURE_CORECLR
 
     //m_MarshalAlloc.Collapse(NULL);
 
@@ -11860,7 +11904,9 @@ HRESULT Thread::Reset(BOOL fFull)
 
         ResetThreadStateNC(TSNC_UnbalancedLocks);
         m_dwLockCount = 0;
+#ifndef FEATURE_CORECLR
         m_dwCriticalRegionCount = 0;
+#endif // !FEATURE_CORECLR
 
     InternalSwitchOut();
     m_OSThreadId = SWITCHED_OUT_FIBER_OSID;
@@ -12000,6 +12046,7 @@ HRESULT Thread::NeedsPriorityScheduling(BOOL *pbNeedsPriorityScheduling)
     return S_OK;
 }
 
+#ifdef FEATURE_INCLUDE_ALL_INTERFACES
 HRESULT Thread::YieldTask()
 {
 #undef Sleep
@@ -12205,6 +12252,7 @@ HRESULT Thread::YieldTask()
 #endif //_DEBUG
 
 #endif // FEATURE_HIJACK
+
 Retry:
         ::ResumeThread(hThread);
         if (fDone)
@@ -12226,12 +12274,16 @@ Retry:
     return S_OK;
 #define Sleep(a) Dont_Use_Sleep(a)
 }
+#endif // FEATURE_INCLUDE_ALL_INTERFACES
 
 HRESULT Thread::LocksHeld(SIZE_T *pLockCount)
 {
     LIMITED_METHOD_CONTRACT;
 
-    *pLockCount = m_dwLockCount + m_dwCriticalRegionCount;
+    *pLockCount = m_dwLockCount;
+#ifndef FEATURE_CORECLR
+    *pLockCount += m_dwCriticalRegionCount;
+#endif // !FEATURE_CORECLR
     return S_OK;
 }
 
@@ -12825,6 +12877,7 @@ void Thread::BeginThreadAffinity()
 {
     LIMITED_METHOD_CONTRACT;
 
+#ifndef FEATURE_CORECLR
     if (!CLRTaskHosted())
     {
         return;
@@ -12854,6 +12907,7 @@ void Thread::BeginThreadAffinity()
 #endif
     }
 #endif // FEATURE_INCLUDE_ALL_INTERFACES
+#endif // !FEATURE_CORECLR
 }
 
 
@@ -12862,6 +12916,7 @@ void Thread::EndThreadAffinity()
 {
     LIMITED_METHOD_CONTRACT;
 
+#ifndef FEATURE_CORECLR
     if (!CLRTaskHosted())
     {
         return;
@@ -12894,6 +12949,7 @@ void Thread::EndThreadAffinity()
 
     _ASSERTE (hr == S_OK);
 #endif // FEATURE_INCLUDE_ALL_INTERFACES
+#endif // !FEATURE_CORECLR
 }
 
 void Thread::SetupThreadForHost()

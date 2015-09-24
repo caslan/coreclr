@@ -46,6 +46,8 @@ using namespace CorUnix;
 
 SET_DEFAULT_DEBUG_CHANNEL(EXCEPT);
 
+#define INJECT_ACTIVATION_SIGNAL SIGRTMIN
+
 /* local type definitions *****************************************************/
 
 #if !HAVE_SIGINFO_T
@@ -73,6 +75,8 @@ void CorUnix::resume_handler(int code, siginfo_t *siginfo, void *context);
 static void common_signal_handler(PEXCEPTION_POINTERS pointers, int code, 
                                   native_context_t *ucontext);
 
+static void inject_activation_handler(int code, siginfo_t *siginfo, void *context);
+
 static void handle_signal(int signal_id, SIGFUNC sigfunc, struct sigaction *previousAction);
 static void restore_signal(int signal_id, struct sigaction *previousAction);
 
@@ -96,6 +100,9 @@ struct sigaction g_previous_sigusr2;
 int g_signalPipe[2] = { 0, 0 };
 
 DWORD g_dwExternalSignalHandlerThreadId = 0;
+
+// Activation function that gets called when an activation is injected into a thread.
+PAL_ActivationFunction g_activationFunction = NULL;
 
 /* public function definitions ************************************************/
 
@@ -137,6 +144,8 @@ BOOL SEHInitializeSignals()
     handle_signal(SIGUSR1, suspend_handler, &g_previous_sigusr1);
     handle_signal(SIGUSR2, resume_handler, &g_previous_sigusr2);
 #endif
+
+    handle_signal(INJECT_ACTIVATION_SIGNAL, inject_activation_handler, NULL);
 
     /* The default action for SIGPIPE is process termination.
        Since SIGPIPE can be signaled when trying to write on a socket for which
@@ -557,6 +566,143 @@ static void sigbus_handler(int code, siginfo_t *siginfo, void *context)
         // Restore the original or default handler and restart h/w exception
         restore_signal(code, &g_previous_sigbus);
     }
+}
+
+/*++
+Function:
+    PAL_SetActivationFunction
+
+    Register an activation function that gets called when an activation is injected
+    into a thread.
+
+Parameters:
+    pActivationFunction - activation function
+
+Return value:
+    None
+--*/
+PALIMPORT
+VOID
+PALAPI
+PAL_SetActivationFunction(
+    IN PAL_ActivationFunction pActivationFunction)
+{
+    g_activationFunction = pActivationFunction;
+}
+
+/*++
+Function :
+    inject_activation_handler
+
+    Handle the INJECT_ACTIVATION_SIGNAL signal. This signal interrupts a running thread
+    so it can call the activation function that was specified when sending the signal.
+
+Parameters :
+    POSIX signal handler parameter list ("man sigaction" for details)
+
+(no return value)
+--*/
+static void inject_activation_handler(int code, siginfo_t *siginfo, void *context)
+{
+    // Only accept activations from the current process
+    if (siginfo->si_pid == getpid())
+    {
+        if (g_activationFunction != NULL)
+        {
+            native_context_t *ucontext = (native_context_t *)context;
+
+            CONTEXT winContext;
+            CONTEXTFromNativeContext(
+                ucontext, 
+                &winContext, 
+                CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_FLOATING_POINT);
+
+            g_activationFunction(&winContext);
+
+            // Activation function may have modified the context, so update it.
+            CONTEXTToNativeContext(&winContext, ucontext);
+        }
+    }
+}
+
+/*++
+Function :
+    InjectActivationInternal
+
+    Interrupt the specified thread and have it call the activationFunction passed in
+
+Parameters :
+    pThread            - target PAL thread
+    activationFunction - function to call 
+
+(no return value)
+--*/
+void InjectActivationInternal(CorUnix::CPalThread* pThread)
+{
+    int status = pthread_kill(pThread->GetPThreadSelf(), INJECT_ACTIVATION_SIGNAL);
+    if (status != 0)
+    {
+        // Failure to send the signal is fatal. There are only two cases when sending
+        // the signal can fail. First, if the signal ID is invalid and second, 
+        // if the thread doesn't exist anymore.
+        abort();
+    }
+}
+
+/*++
+Function:
+PAL_InjectActivation
+
+Interrupt the specified thread and have it call an activation function registered
+using the PAL_SetActivationFunction
+
+Parameters:
+hThread            - handle of the target thread
+
+Return: 
+TRUE if it succeeded, FALSE otherwise.
+--*/
+BOOL
+PALAPI
+PAL_InjectActivation(
+    IN HANDLE hThread)
+{
+    PERF_ENTRY(PAL_InjectActivation);
+    ENTRY("PAL_InjectActivation(hThread=%p)\n", hThread);
+
+    CPalThread *pCurrentThread;
+    CPalThread *pTargetThread;
+    IPalObject *pobjThread = NULL;
+
+    pCurrentThread = InternalGetCurrentThread();
+
+    PAL_ERROR palError = InternalGetThreadDataFromHandle(
+        pCurrentThread,
+        hThread,
+        0,
+        &pTargetThread,
+        &pobjThread
+        );
+
+    if (palError == NO_ERROR)
+    {
+        InjectActivationInternal(pTargetThread);
+    }
+    else
+    {
+        pCurrentThread->SetLastError(palError);
+    }
+
+    if (pobjThread != NULL)
+    {
+        pobjThread->ReleaseReference(pCurrentThread);
+    }
+
+    BOOL success = (palError == NO_ERROR);
+    LOGEXIT("PAL_InjectActivation returns:d\n", success);
+    PERF_EXIT(PAL_InjectActivation);
+
+    return success;
 }
 
 /*++

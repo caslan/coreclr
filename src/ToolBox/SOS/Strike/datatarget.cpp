@@ -21,14 +21,20 @@ DataTarget::DataTarget(void) :
 STDMETHODIMP
 DataTarget::QueryInterface(
     THIS_
-    __in REFIID InterfaceId,
-    __out PVOID* Interface
+    ___in REFIID InterfaceId,
+    ___out PVOID* Interface
     )
 {
     if (InterfaceId == IID_IUnknown ||
         InterfaceId == IID_ICLRDataTarget)
     {
         *Interface = (ICLRDataTarget*)this;
+        AddRef();
+        return S_OK;
+    }
+    if (InterfaceId == IID_ICorDebugDataTarget4)
+    {
+        *Interface = (ICorDebugDataTarget4*)this;
         AddRef();
         return S_OK;
     }
@@ -89,8 +95,8 @@ DataTarget::GetImageBase(
     {
         return E_UNEXPECTED;
     }
-    CHAR lpstr[MAX_PATH];
-    int name_length = WideCharToMultiByte(CP_ACP, 0, name, -1, lpstr, MAX_PATH, NULL, NULL);
+    CHAR lpstr[MAX_LONGPATH];
+    int name_length = WideCharToMultiByte(CP_ACP, 0, name, -1, lpstr, MAX_LONGPATH, NULL, NULL);
     if (name_length == 0)
     {
         return E_FAIL;
@@ -187,4 +193,11 @@ DataTarget::Request(
     /* [size_is][out] */ BYTE *outBuffer)
 {
     return E_NOTIMPL;
+}
+
+HRESULT STDMETHODCALLTYPE 
+DataTarget::GetPid(
+    /* [out] */ DWORD *pdwProcessId)
+{
+    return g_ExtSystem->GetCurrentProcessId(pdwProcessId);
 }

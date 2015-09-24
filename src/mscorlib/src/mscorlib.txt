@@ -68,12 +68,6 @@ PostconditionOnExceptionFailed = Postcondition failed after throwing an exceptio
 PostconditionOnExceptionFailed_Cnd = Postcondition failed after throwing an exception: {0}
 InvariantFailed = Invariant failed.
 InvariantFailed_Cnd = Invariant failed: {0}
-#if PLATFORM_UNIX
-StackTrace_Stack = Stack trace: \n{0}
-#endif
-#if !PLATFORM_UNIX
-StackTrace_Stack = Stack trace: \r\n{0}
-#endif // PLATFORM_UNIX
 MustUseCCRewrite = An assembly (probably "{1}") must be rewritten using the code contracts binary rewriter (CCRewrite) because it is calling Contract.{0} and the CONTRACTS_FULL symbol is defined.  Remove any explicit definitions of the CONTRACTS_FULL symbol from your project and rebuild.  CCRewrite can be downloaded from http://go.microsoft.com/fwlink/?LinkID=169180. \r\nAfter the rewriter is installed, it can be enabled in Visual Studio from the project's Properties page on the Code Contracts pane.  Ensure that "Perform Runtime Contract Checking" is enabled, which will define CONTRACTS_FULL.
 
 ; Access Control
@@ -579,7 +573,7 @@ Argument_ImpersonateUser = Unable to impersonate user.
 Argument_InvalidHexFormat = Improperly formatted hex string.
 Argument_InvalidSite = Invalid site.
 Argument_InterfaceMap = 'this' type cannot be an interface itself.
-Argument_ArrayGetInterfaceMap = Interface maps for generic interfaces on arrays cannot be retrived.
+Argument_ArrayGetInterfaceMap = Interface maps for generic interfaces on arrays cannot be retrieved.
 Argument_InvalidName = Invalid name.
 Argument_InvalidDirectoryOnUrl = Invalid directory on URL.
 Argument_InvalidUrl = Invalid URL.
@@ -2129,6 +2123,11 @@ SpinWait_SpinUntil_ArgumentNull=The condition argument is null.
 event_SpinLock_FastPathFailed=SpinLock beginning to spin.
 event_SpinWait_NextSpinWillYield=Next spin will yield.
 event_Barrier_PhaseFinished=Barrier finishing phase {1}.
+
+#if PLATFORM_UNIX
+; Unix threading
+PlatformNotSupported_NamedSynchronizationPrimitives=Named synchronization primitives are not supported on this platform.
+#endif
 
 ;
 ; System.Threading.Tasks

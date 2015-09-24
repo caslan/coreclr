@@ -500,10 +500,10 @@ CorUnix::InternalCreateFile(
         goto done;
     }
 
-    if ( strlen(lpFileName) >= MAX_PATH )
+    if ( strlen(lpFileName) >= MAX_LONGPATH )
     {
         WARN("InternalCreateFile called with a filename whose size is "
-                "%d >= MAX_PATH (%d)\n", strlen(lpFileName), MAX_PATH);
+                "%d >= MAX_LONGPATH (%d)\n", strlen(lpFileName), MAX_LONGPATH);
         palError = ERROR_FILENAME_EXCED_RANGE;
         goto done;
     }
@@ -974,7 +974,7 @@ CreateFileW(
 {
     CPalThread *pThread;
     PAL_ERROR palError = NO_ERROR;
-    char    name[MAX_PATH];
+    char    name[MAX_LONGPATH];
     int     size;
     HANDLE  hRet = INVALID_HANDLE_VALUE;
 
@@ -988,14 +988,14 @@ CreateFileW(
 
     pThread = InternalGetCurrentThread();
 
-    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, name, MAX_PATH,
+    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, name, MAX_LONGPATH,
                                 NULL, NULL );
     if( size == 0 )
     {
         DWORD dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpFileName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             palError = ERROR_FILENAME_EXCED_RANGE;
         }
         else
@@ -1053,8 +1053,8 @@ CopyFileW(
       IN BOOL bFailIfExists)
 {
     CPalThread *pThread;
-    char    source[MAX_PATH];
-    char    dest[MAX_PATH];
+    char    source[MAX_LONGPATH];
+    char    dest[MAX_LONGPATH];
     int     src_size,dest_size;
     BOOL        bRet = FALSE;
 
@@ -1066,14 +1066,14 @@ CopyFileW(
           lpNewFileName?lpNewFileName:W16_NULLSTRING, bFailIfExists);
 
     pThread = InternalGetCurrentThread();
-    src_size = WideCharToMultiByte( CP_ACP, 0, lpExistingFileName, -1, source, MAX_PATH,
+    src_size = WideCharToMultiByte( CP_ACP, 0, lpExistingFileName, -1, source, MAX_LONGPATH,
                                 NULL, NULL );
     if( src_size == 0 )
     {
         DWORD dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpExistingFileName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpExistingFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -1084,14 +1084,14 @@ CopyFileW(
         goto done;
     }
 
-    dest_size = WideCharToMultiByte( CP_ACP, 0, lpNewFileName, -1, dest, MAX_PATH,
+    dest_size = WideCharToMultiByte( CP_ACP, 0, lpNewFileName, -1, dest, MAX_LONGPATH,
                                 NULL, NULL );
     if( dest_size == 0 )
     {
         DWORD dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpNewFileName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpNewFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -1128,16 +1128,17 @@ DeleteFileA(
     int     result;
     BOOL    bRet = FALSE;
     DWORD   dwLastError = 0;
-    char    lpUnixFileName[MAX_PATH];
+    char    lpUnixFileName[MAX_LONGPATH];
     LPSTR lpFullUnixFileName = NULL;
-    DWORD cchFullUnixFileName = PATH_MAX+1;// InternalCanonicalizeRealPath requires this to be atleast PATH_MAX
+    DWORD cchFullUnixFileName = MAX_LONGPATH+1;// InternalCanonicalizeRealPath requires this to be atleast PATH_MAX
 
     PERF_ENTRY(DeleteFileA);
     ENTRY("DeleteFileA(lpFileName=%p (%s))\n", lpFileName?lpFileName:"NULL", lpFileName?lpFileName:"NULL");
 
     pThread = InternalGetCurrentThread();
-    if (strlen(lpFileName) >= MAX_PATH)
+    if (strlen(lpFileName) >= MAX_LONGPATH)
     {
+        WARN("lpFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
         pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         goto done;
     }
@@ -1240,7 +1241,7 @@ DeleteFileW(
 {
     CPalThread *pThread;
     int  size;
-    char name[MAX_PATH];
+    char name[MAX_LONGPATH];
     BOOL bRet = FALSE;
 
     PERF_ENTRY(DeleteFileW);
@@ -1249,14 +1250,14 @@ DeleteFileW(
       lpFileName?lpFileName:W16_NULLSTRING);
 
     pThread = InternalGetCurrentThread();
-    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, name, MAX_PATH,
+    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, name, MAX_LONGPATH,
                                 NULL, NULL );
     if( size == 0 )
     {
         DWORD dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpFilePathName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpFilePathName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -1353,8 +1354,8 @@ MoveFileExA(
 {
     CPalThread *pThread;
     int   result;
-    char  source[MAX_PATH];
-    char  dest[MAX_PATH];
+    char  source[MAX_LONGPATH];
+    char  dest[MAX_LONGPATH];
     BOOL  bRet = TRUE;
     DWORD dwLastError = 0;
 
@@ -1375,8 +1376,9 @@ MoveFileExA(
         goto done;
     }
 
-    if (strlen(lpExistingFileName) >= MAX_PATH)
+    if (strlen(lpExistingFileName) >= MAX_LONGPATH)
     {
+        WARN("lpExistingFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
         pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         goto done;
     }
@@ -1385,8 +1387,9 @@ MoveFileExA(
 
     FILEDosToUnixPathA( source );
 
-    if (strlen(lpNewFileName) >= MAX_PATH)
+    if (strlen(lpNewFileName) >= MAX_LONGPATH)
     {
+        WARN("lpNewFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
         pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         goto done;
     }
@@ -1524,8 +1527,8 @@ MoveFileExW(
         IN DWORD dwFlags)
 {
     CPalThread *pThread;
-    char    source[MAX_PATH];
-    char    dest[MAX_PATH];
+    char    source[MAX_LONGPATH];
+    char    dest[MAX_LONGPATH];
     int     src_size,dest_size;
     BOOL        bRet = FALSE;
 
@@ -1537,14 +1540,14 @@ MoveFileExW(
           lpNewFileName?lpNewFileName:W16_NULLSTRING, dwFlags);
 
     pThread = InternalGetCurrentThread();
-    src_size = WideCharToMultiByte( CP_ACP, 0, lpExistingFileName, -1, source, MAX_PATH,
+    src_size = WideCharToMultiByte( CP_ACP, 0, lpExistingFileName, -1, source, MAX_LONGPATH,
                                 NULL, NULL );
     if( src_size == 0 )
     {
         DWORD dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpExistingFileName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpExistingFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -1555,14 +1558,14 @@ MoveFileExW(
         goto done;
     }
 
-    dest_size = WideCharToMultiByte( CP_ACP, 0, lpNewFileName, -1, dest, MAX_PATH,
+    dest_size = WideCharToMultiByte( CP_ACP, 0, lpNewFileName, -1, dest, MAX_LONGPATH,
                                 NULL, NULL );
     if( dest_size == 0 )
     {
         DWORD dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpNewFileName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpNewFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -1615,20 +1618,21 @@ GetFileAttributesA(
     struct stat stat_data;
     DWORD dwAttr = 0;
     DWORD dwLastError = 0;
-    CHAR UnixFileName[MAX_PATH + 1];
+    CHAR UnixFileName[MAX_LONGPATH + 1];
 
     PERF_ENTRY(GetFileAttributesA);
     ENTRY("GetFileAttributesA(lpFileName=%p (%s))\n", lpFileName?lpFileName:"NULL", lpFileName?lpFileName:"NULL");
-     
+
     pThread = InternalGetCurrentThread();
     if (lpFileName == NULL)
     {
         dwLastError = ERROR_PATH_NOT_FOUND;
         goto done;
     }
-    
-    if (strlen(lpFileName) >= MAX_PATH) 
+
+    if (strlen(lpFileName) >= MAX_LONGPATH) 
     {
+        WARN("lpFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
         dwLastError = ERROR_FILENAME_EXCED_RANGE;
         goto done;
     }
@@ -1697,7 +1701,7 @@ GetFileAttributesW(
 {
     CPalThread *pThread;
     int   size;
-    char  filename[MAX_PATH];
+    char  filename[MAX_LONGPATH];
     DWORD dwRet = (DWORD) -1;
 
     PERF_ENTRY(GetFileAttributesW);
@@ -1712,14 +1716,14 @@ GetFileAttributesW(
         goto done;
     }
     
-    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, filename, MAX_PATH,
+    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, filename, MAX_LONGPATH,
                                 NULL, NULL );
     if( size == 0 )
     {
         DWORD dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpFileName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -1757,7 +1761,7 @@ GetFileAttributesExW(
 
     struct stat stat_data;
 
-    char name[MAX_PATH];
+    char name[MAX_LONGPATH];
     int  size;
 
     PERF_ENTRY(GetFileAttributesExW);
@@ -1786,14 +1790,14 @@ GetFileAttributesExW(
         goto done;
     }
     
-    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, name, MAX_PATH,
+    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, name, MAX_LONGPATH,
                                 NULL, NULL );
     if( size == 0 )
     {
         dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpFileName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             dwLastError = ERROR_FILENAME_EXCED_RANGE;
         }
         else
@@ -1867,7 +1871,7 @@ SetFileAttributesW(
            IN DWORD dwFileAttributes)
 {
     CPalThread *pThread;
-    char name[MAX_PATH];
+    char name[MAX_LONGPATH];
     int  size;
 
     DWORD dwLastError = 0;
@@ -1885,14 +1889,14 @@ SetFileAttributesW(
         goto done;
     }
     
-    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, name, MAX_PATH,
+    size = WideCharToMultiByte( CP_ACP, 0, lpFileName, -1, name, MAX_LONGPATH,
                                 NULL, NULL );
     if( size == 0 )
     {
         dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpFileName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpFileName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             dwLastError = ERROR_FILENAME_EXCED_RANGE;
         }
         else
@@ -3363,8 +3367,8 @@ GetTempFileNameA(
                  OUT LPSTR lpTempFileName)
 {
     CPalThread *pThread;
-    CHAR    full_name[ MAX_PATH + 1 ];
-    CHAR    file_template[ MAX_PATH + 1 ];
+    CHAR    full_name[ MAX_LONGPATH + 1 ];
+    CHAR    file_template[ MAX_LONGPATH + 1 ];
     CHAR    chLastPathNameChar;
  
     HANDLE  hTempFile;
@@ -3403,9 +3407,9 @@ GetTempFileNameA(
         goto done;
     }
 
-    if ( strlen( lpPathName ) + MAX_SEEDSIZE + MAX_PREFIX >= MAX_PATH ) 
+    if ( strlen( lpPathName ) + MAX_SEEDSIZE + MAX_PREFIX >= MAX_LONGPATH ) 
     {
-        WARN( "File names larger than MAX_PATH (%d)!\n", MAX_PATH );
+        WARN( "File names larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH );
         pThread->SetLastError( ERROR_FILENAME_EXCED_RANGE );
         goto done;
     }
@@ -3480,7 +3484,7 @@ GetTempFileNameA(
         
         if ( CloseHandle( hTempFile ) )
         {
-            if (strcpy_s( lpTempFileName, MAX_PATH, full_name ) != SAFECRT_SUCCESS)
+            if (strcpy_s( lpTempFileName, MAX_LONGPATH, full_name ) != SAFECRT_SUCCESS)
             {
                 ERROR( "strcpy_s failed!\n");
                 pThread->SetLastError( ERROR_FILENAME_EXCED_RANGE );
@@ -3539,9 +3543,9 @@ GetTempFileNameW(
     CPalThread *pThread;
     INT path_size = 0;
     INT prefix_size = 0;
-    CHAR full_name[ MAX_PATH + 1 ];
-    CHAR prefix_string[ MAX_PATH + 1 ];
-    CHAR tempfile_name[ MAX_PATH + 1 ];
+    CHAR full_name[ MAX_LONGPATH + 1 ];
+    CHAR prefix_string[ MAX_LONGPATH + 1 ];
+    CHAR tempfile_name[ MAX_PATH_FNAME + 1 ];
     UINT   uRet;
 
     PERF_ENTRY(GetTempFileNameW);
@@ -3560,13 +3564,13 @@ GetTempFileNameW(
     }
 
     path_size = WideCharToMultiByte( CP_ACP, 0, lpPathName, -1, full_name,
-                                     MAX_PATH, NULL, NULL );
+                                     MAX_LONGPATH, NULL, NULL );
     if( path_size == 0 )
     {
         DWORD dwLastError = GetLastError();
         if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
         {
-            WARN("lpPathName is larger than MAX_PATH (%d)!\n", MAX_PATH);
+            WARN("lpPathName is larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
             pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
         }
         else
@@ -3582,14 +3586,14 @@ GetTempFileNameW(
     {
         prefix_size = WideCharToMultiByte( CP_ACP, 0, lpPrefixString, -1, 
                                            prefix_string,
-                                           MAX_PATH - path_size - MAX_SEEDSIZE, 
+                                           MAX_LONGPATH - path_size - MAX_SEEDSIZE, 
                                            NULL, NULL );
         if( prefix_size == 0 )
         {
             DWORD dwLastError = GetLastError();
             if( dwLastError == ERROR_INSUFFICIENT_BUFFER )
             {
-                WARN("Full name would be larger than MAX_PATH (%d)!\n", MAX_PATH);
+                WARN("Full name would be larger than MAX_LONGPATH (%d)!\n", MAX_LONGPATH);
                 pThread->SetLastError(ERROR_FILENAME_EXCED_RANGE);
             }
             else
@@ -3607,12 +3611,12 @@ GetTempFileNameW(
                             0, tempfile_name);
         
     if ( uRet && !MultiByteToWideChar( CP_ACP, 0, tempfile_name, -1, 
-                                       lpTempFileName, MAX_PATH ))
+                                       lpTempFileName, MAX_PATH_FNAME ))
     {
         DWORD dwLastError = GetLastError();
         if (dwLastError == ERROR_INSUFFICIENT_BUFFER)
         {
-            WARN("File names larger than MAX_PATH (%d)! \n", MAX_PATH);
+            WARN("File names larger than MAX_PATH_FNAME (%d)! \n", MAX_PATH_FNAME);
             dwLastError = ERROR_FILENAME_EXCED_RANGE;
         }
         else
@@ -4761,7 +4765,7 @@ Input parameters:
 source  = path to the file on input, path to the file with all 
           symbolic links traversed on return
 
-Note: Assumes the maximum size of the source is MAX_PATH
+Note: Assumes the maximum size of the source is MAX_LONGPATH
 
 Return value:
     TRUE on success, FALSE on failure
@@ -4769,11 +4773,11 @@ Return value:
 BOOL FILEGetFileNameFromSymLink(char *source)
 {
     int ret;
-    char sLinkData[MAX_PATH];
+    char sLinkData[MAX_LONGPATH];
 
     do
     {
-        ret = readlink(source, sLinkData, MAX_PATH);
+        ret = readlink(source, sLinkData, MAX_LONGPATH);
         if (ret>0)
         {
             sLinkData[ret] = '\0';
