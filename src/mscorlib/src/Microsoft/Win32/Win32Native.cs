@@ -829,11 +829,19 @@ namespace Microsoft.Win32 {
         [DllImport(KERNEL32, CharSet=CharSet.Unicode, ExactSpelling=true, EntryPoint="lstrlenW")]
         internal static extern int lstrlenW(IntPtr ptr);
 
-#if FEATURE_COMINTEROP
-        [DllImport(Win32Native.OLEAUT32, CharSet=CharSet.Unicode)]
-        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]            
+        [DllImport(Win32Native.OLEAUT32, CharSet = CharSet.Unicode)]
+        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
         internal static extern IntPtr SysAllocStringLen(String src, int len);  // BSTR
 
+        [DllImport(Win32Native.OLEAUT32)]
+        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        internal static extern uint SysStringLen(IntPtr bstr);
+
+        [DllImport(Win32Native.OLEAUT32)]
+        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        internal static extern void SysFreeString(IntPtr bstr);
+
+#if FEATURE_COMINTEROP
         [DllImport(Win32Native.OLEAUT32)]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]            
         internal static extern IntPtr SysAllocStringByteLen(byte[] str, uint len);  // BSTR
@@ -844,15 +852,7 @@ namespace Microsoft.Win32 {
 
         [DllImport(Win32Native.OLEAUT32)]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
-        internal static extern uint SysStringLen(IntPtr bstr);
-
-        [DllImport(Win32Native.OLEAUT32)]
-        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         internal static extern uint SysStringLen(SafeBSTRHandle bstr);
-
-        [DllImport(Win32Native.OLEAUT32)]
-        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
-        internal static extern void SysFreeString(IntPtr bstr);
 #endif
 
         [DllImport(KERNEL32)]
