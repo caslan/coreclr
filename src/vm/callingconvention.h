@@ -525,10 +525,11 @@ public:
 
         if (TransitionBlock::IsFloatArgumentRegisterOffset(argOffset))
         {
-            // Dividing by 8 as size of each register in FloatArgumentRegisters is 8 bytes.
-            pLoc->m_idxFloatReg = (argOffset - TransitionBlock::GetOffsetOfFloatArgumentRegisters()) / 8;
+            // Dividing by 8 as size of each register in FloatArgumentRegisters is 8 bytes
 
             // UNIXTODO: Passing of structs, HFAs. For now, use the Windows convention.
+
+            pLoc->m_idxFloatReg = (argOffset - TransitionBlock::GetOffsetOfFloatArgumentRegisters()) / 16;
             pLoc->m_cFloatReg = 1;
             return;
         }
@@ -895,9 +896,10 @@ int ArgIteratorTemplate<ARGITERATOR_BASE>::GetNextOffset()
     {
         if (cFPRegs + m_idxFPReg <= 8)
         {
-            int argOfs = TransitionBlock::GetOffsetOfFloatArgumentRegisters() + m_idxFPReg * 8;
+            int argOfs = TransitionBlock::GetOffsetOfFloatArgumentRegisters() + m_idxFPReg * 16;
             m_idxFPReg += cFPRegs;
             return argOfs;
+
         }
     }
     else
