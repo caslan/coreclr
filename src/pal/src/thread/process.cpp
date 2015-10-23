@@ -1166,7 +1166,7 @@ GetExitCodeProcess(
     
     if (NO_ERROR != palError)
     {
-        ASSERT("Couldn't get process status information!\n");
+        ENTRY("Couldn't get process status information!\n");
         goto done;
     }
 
