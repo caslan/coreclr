@@ -49,13 +49,15 @@ VOID InitLogging()
         // <TODO>FIX bit of a workaround for now, check for the log file in the
         // registry and if there, turn on file logging VPM</TODO>
     
-    LogFlags |= REGUTIL::GetConfigFlag_DontUse_(CLRConfig::INTERNAL_LogEnable, LOG_ENABLE);    
+    //LogFlags |= REGUTIL::GetConfigFlag_DontUse_(CLRConfig::INTERNAL_LogEnable, LOG_ENABLE);
+    LogFlags |= LOG_ENABLE;
     LogFacilityMask = REGUTIL::GetConfigDWORD_DontUse_(CLRConfig::INTERNAL_LogFacility, LogFacilityMask) | LF_ALWAYS;
     LogVMLevel = REGUTIL::GetConfigDWORD_DontUse_(CLRConfig::EXTERNAL_LogLevel, LogVMLevel);
     LogFlags |= REGUTIL::GetConfigFlag_DontUse_(CLRConfig::INTERNAL_LogFileAppend, LOG_ENABLE_APPEND_FILE);
     LogFlags |= REGUTIL::GetConfigFlag_DontUse_(CLRConfig::INTERNAL_LogFlushFile,  LOG_ENABLE_FLUSH_FILE);
     LogFlags |= REGUTIL::GetConfigFlag_DontUse_(CLRConfig::INTERNAL_LogToDebugger, LOG_ENABLE_DEBUGGER_LOGGING);
-    LogFlags |= REGUTIL::GetConfigFlag_DontUse_(CLRConfig::INTERNAL_LogToFile,     LOG_ENABLE_FILE_LOGGING);
+    //LogFlags |= REGUTIL::GetConfigFlag_DontUse_(CLRConfig::INTERNAL_LogToFile,     LOG_ENABLE_FILE_LOGGING);
+    LogFlags |= LOG_ENABLE_FILE_LOGGING;
     LogFlags |= REGUTIL::GetConfigFlag_DontUse_(CLRConfig::INTERNAL_LogToConsole,  LOG_ENABLE_CONSOLE_LOGGING);
     
     LogFacilityMask2 = REGUTIL::GetConfigDWORD_DontUse_(CLRConfig::INTERNAL_LogFacility2, LogFacilityMask2) | LF_ALWAYS;

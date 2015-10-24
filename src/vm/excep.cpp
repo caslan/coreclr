@@ -13756,6 +13756,8 @@ VOID DECLSPEC_NORETURN RealCOMPlusThrow(RuntimeExceptionKind  reKind, UINT resID
     }
     CONTRACTL_END;
 
+    LOG((LF_CORDB, LL_INFO10, "Exception: %S %S \n", wszArg1, wszArg2));
+    
     EX_THROW(EEMessageException,
         (reKind, resID, wszArg1, wszArg2, wszArg3, wszArg4, wszArg5, wszArg6));
 }
