@@ -95,8 +95,8 @@ static PCRITICAL_SECTION init_critsec = NULL;
 
 static int Initialize(int argc, const char *const argv[], DWORD flags);
 static BOOL INIT_IncreaseDescriptorLimit(void);
-static LPWSTR INIT_FormatCommandLine (CPalThread *pThread, int argc, const char * const *argv);
-static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name);
+static LPWSTR INIT_FormatCommandLine (int argc, const char * const *argv);
+static LPWSTR INIT_FindEXEPath(LPCSTR exe_name);
 
 #ifdef _DEBUG
 extern void PROCDumpThreadList(void);
@@ -356,7 +356,7 @@ Initialize(
         // Initialize the object manager
         //
 
-        pshmom = InternalNew<CSharedMemoryObjectManager>(pThread);
+        pshmom = InternalNew<CSharedMemoryObjectManager>();
         if (NULL == pshmom)
         {
             ERROR("Unable to allocate new object manager\n");
@@ -368,7 +368,7 @@ Initialize(
         if (NO_ERROR != palError)
         {
             ERROR("object manager initialization failed!\n");
-            InternalDelete(pThread, pshmom);
+            InternalDelete(pshmom);
             goto CLEANUP1b;
         }
 
@@ -378,7 +378,7 @@ Initialize(
         // Initialize the synchronization manager
         //
         g_pSynchronizationManager =
-            CPalSynchMgrController::CreatePalSynchronizationManager(pThread);
+            CPalSynchMgrController::CreatePalSynchronizationManager();
 
         if (NULL == g_pSynchronizationManager)
         {
@@ -397,7 +397,7 @@ Initialize(
     if (argc > 0 && argv != NULL)
     {
         /* build the command line */
-        command_line = INIT_FormatCommandLine(pThread, argc, argv);
+        command_line = INIT_FormatCommandLine(argc, argv);
         if (NULL == command_line)
         {
             ERROR("Error building command line\n");
@@ -405,7 +405,7 @@ Initialize(
         }
 
         /* find out the application's full path */
-        exe_path = INIT_FindEXEPath(pThread, argv[0]);
+        exe_path = INIT_FindEXEPath(argv[0]);
         if (NULL == exe_path)
         {
             ERROR("Unable to find exe path\n");
@@ -419,7 +419,6 @@ Initialize(
         }
 
         palError = InitializeProcessCommandLine(
-            pThread,
             command_line,
             exe_path);
         
@@ -500,7 +499,8 @@ Initialize(
         }
 
         /* Initialize the Virtual* functions. */
-        if (FALSE == VIRTUALInitialize())
+        bool initializeExecutableMemoryAllocator = (flags & PAL_INITIALIZE_EXEC_ALLOCATOR) != 0;
+        if (FALSE == VIRTUALInitialize(initializeExecutableMemoryAllocator))
         {
             ERROR("Unable to initialize virtual memory support\n");
             goto CLEANUP10;
@@ -557,9 +557,9 @@ CLEANUP6:
 CLEANUP5:
     PROCCleanupInitialProcess();
 CLEANUP2:
-    InternalFree(pThread, exe_path);
+    InternalFree(exe_path);
 CLEANUP1e:
-    InternalFree(pThread, command_line);
+    InternalFree(command_line);
 CLEANUP1d:
     // Cleanup synchronization manager
 CLEANUP1c:
@@ -588,7 +588,6 @@ done:
     if (fFirstTimeInit && 0 == retval)
     {
         _ASSERTE(NULL != pThread);
-        _ASSERTE(pThread->suspensionInfo.IsSuspensionStateSafe());
     }
 
     if (retval != 0 && GetLastError() == ERROR_SUCCESS)
@@ -625,8 +624,8 @@ PAL_ERROR
 PALAPI
 PAL_InitializeCoreCLR(const char *szExePath)
 {    
-    // Fake up a command line to call PAL_Initialize with.
-    int result = PAL_Initialize(1, &szExePath);
+    // Fake up a command line to call PAL initialization with.
+    int result = Initialize(1, &szExePath, PAL_INITIALIZE_CORECLR);
     if (result != 0)
     {
         return GetLastError();
@@ -745,137 +744,29 @@ done:
 Function:
   PALCommonCleanup
 
-Utility function to free any resource used by the PAL. 
+Utility function to prepare for shutdown.
 
-Parameters :
-    step: selects the desired cleanup step
-    full_cleanup:  FALSE: cleanup only what's needed and leave the rest 
-                          to the OS process cleanup
-                   TRUE:  full cleanup 
 --*/
 void 
-PALCommonCleanup(PALCLEANUP_STEP step, BOOL full_cleanup)
+PALCommonCleanup()
 {
-    CPalThread *pThread = InternalGetCurrentThread();
-    static int step_done[PALCLEANUP_STEP_INVALID] = { 0 };
+    static bool cleanupDone = false;
 
-    switch (step)
+    if (!cleanupDone)
     {
-    case PALCLEANUP_ALL_STEPS:
-    case PALCLEANUP_STEP_ONE:
-        /* Note: in order to work correctly, this step should be executed with 
-           init_count > 0
-         */
-        if (!step_done[PALCLEANUP_STEP_ONE])
-        {
-            step_done[PALCLEANUP_STEP_ONE] = 1;
+        cleanupDone = true;
 
-            PALSetShutdownIntent();
+        PALSetShutdownIntent();
 
-            //
-            // Let the synchronization manager know we're about to shutdown
-            //
+        //
+        // Let the synchronization manager know we're about to shutdown
+        //
 
-            CPalSynchMgrController::PrepareForShutdown();
+        CPalSynchMgrController::PrepareForShutdown();
 
 #ifdef _DEBUG
-            PROCDumpThreadList();
+        PROCDumpThreadList();
 #endif
-
-            TRACE("About to suspend every other thread\n");
-
-            /* prevent other threads from acquiring signaled objects */
-            PROCCondemnOtherThreads();
-            /* prevent other threads from using services we're shutting down */
-            PROCSuspendOtherThreads();
-
-            TRACE("Every other thread suspended until exit\n");
-        }
-
-        /* Fall down for PALCLEANUP_ALL_STEPS */
-        if (PALCLEANUP_ALL_STEPS != step)
-            break;
-
-    case PALCLEANUP_STEP_TWO:
-        if (!step_done[PALCLEANUP_STEP_TWO])
-        {
-            step_done[PALCLEANUP_STEP_TWO] = 1;
-
-            /* LOADFreeeModules needs to be called before unitializing the rest
-               of the PAL since it could result in calling DllMain for loaded
-               libraries. For the user DllMain, all PAL APIs should still be
-               functional. */
-            LOADFreeModules(FALSE);
-
-#ifdef PAL_PERF
-            PERFDisableProcessProfile();
-            PERFDisableThreadProfile(FALSE);
-            PERFTerminate();  
-#endif
-
-            if (full_cleanup)
-            {
-                /* close primary handles of standard file objects */
-                FILECleanupStdHandles();
-                VIRTUALCleanup();
-                /* SEH requires information from the process structure to work;
-                   LOADFreeModules requires SEH to be functional when calling DllMain.
-                   Therefore SEHCleanup must go between LOADFreeModules and
-                   PROCCleanupInitialProcess */
-                SEHCleanup();
-                PROCCleanupInitialProcess();
-            }
-
-            // Object manager shutdown may cause all CPalThread objects
-            // to be deleted. Since the CPalThread of the shutdown thread
-            // needs to be available for reference by the thread suspension unsafe
-            // operations, the reference of CPalThread is incremented here
-            // to keep it alive until PAL finishes cleanup.
-            pThread->AddThreadReference();
-
-            //
-            // Shutdown object manager -- this needs to happen before the
-            // synch manager shutdown since it will call into the synch
-            // manager to free object synch data
-            // 
-            static_cast<CSharedMemoryObjectManager*>(g_pObjectManager)->Shutdown(pThread);
-
-            //
-            // Final synch manager shutdown
-            //
-            CPalSynchMgrController::Shutdown(pThread, full_cleanup);
-
-            if (full_cleanup)
-            {
-                /* It needs to be done after stopping the handle manager, because
-                   the cleanup will delete the critical section which is used
-                   when closing the handle of a file mapping */
-                MAPCleanup();
-                // MutexCleanup();
-
-                MiscCleanup();
-
-                TLSCleanup();
-            }
-
-            // The thread object will no longer be available after the shutdown thread
-            // releases the thread reference.
-            g_fThreadDataAvailable = FALSE;
-            pThread->ReleaseThreadReference();
-            pthread_setspecific(thObjKey, NULL); // Make sure any TLS entry is removed.
-
-            // Since thread object is no longer available here,
-            // the code path from here should stop using any functions
-            // that reference thread object.
-            SHMCleanup();
-
-            TRACE("PAL Terminated.\n");
-        }
-        break;
-
-    default:
-        ASSERT("Unknown final cleanup step %d", step);
-        break;
     }
 }
 
@@ -1107,7 +998,7 @@ Note : not all peculiarities of Windows command-line processing are supported;
      passed to argv as \\a... there may be other similar cases
     -there may be other characters which must be escaped 
 --*/
-static LPWSTR INIT_FormatCommandLine (CPalThread *pThread, int argc, const char * const *argv)
+static LPWSTR INIT_FormatCommandLine (int argc, const char * const *argv)
 {
     LPWSTR retval;
     LPSTR command_line=NULL, command_ptr;
@@ -1130,7 +1021,7 @@ static LPWSTR INIT_FormatCommandLine (CPalThread *pThread, int argc, const char 
         length+=3;
         length+=strlen(argv[i])*2;
     }
-    command_line = reinterpret_cast<LPSTR>(InternalMalloc(pThread, length));
+    command_line = reinterpret_cast<LPSTR>(InternalMalloc(length));
 
     if(!command_line)
     {
@@ -1141,7 +1032,7 @@ static LPWSTR INIT_FormatCommandLine (CPalThread *pThread, int argc, const char 
     command_ptr=command_line;
     for(i=0; i<argc; i++)
     {
-        /* double-quote at beginning of argument containing at leat one space */
+        /* double-quote at beginning of argument containing at least one space */
         for(j = 0; (argv[i][j] != 0) && (!isspace((unsigned char) argv[i][j])); j++);
 
         if (argv[i][j] != 0)
@@ -1178,28 +1069,28 @@ static LPWSTR INIT_FormatCommandLine (CPalThread *pThread, int argc, const char 
     if (i == 0)
     {
         ASSERT("MultiByteToWideChar failure\n");
-        InternalFree(pThread, command_line);
+        InternalFree(command_line);
         return NULL;
     }
 
-    retval = reinterpret_cast<LPWSTR>(InternalMalloc(pThread, (sizeof(WCHAR)*i)));
+    retval = reinterpret_cast<LPWSTR>(InternalMalloc((sizeof(WCHAR)*i)));
     if(retval == NULL)
     {
         ERROR("can't allocate memory for Unicode command line!\n");
-        InternalFree(pThread, command_line);
+        InternalFree(command_line);
         return NULL;
     }
 
     if(!MultiByteToWideChar(CP_ACP, 0,command_line, i, retval, i))
     {
         ASSERT("MultiByteToWideChar failure\n");
-        InternalFree(pThread, retval);
+        InternalFree(retval);
         retval = NULL;
     }
     else
         TRACE("Command line is %s\n", command_line);
 
-    InternalFree(pThread, command_line);
+    InternalFree(command_line);
     return retval;
 }
 
@@ -1225,7 +1116,7 @@ Notes 2:
     This doesn't handle the case of directories with the desired name
     (and directories are usually executable...)
 --*/
-static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
+static LPWSTR INIT_FindEXEPath(LPCSTR exe_name)
 {
 #ifndef __APPLE__
     CHAR real_path[PATH_MAX+1];
@@ -1262,7 +1153,7 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
                 return NULL;
             }
 
-            return_value = reinterpret_cast<LPWSTR>(InternalMalloc(pThread, (return_size*sizeof(WCHAR))));
+            return_value = reinterpret_cast<LPWSTR>(InternalMalloc((return_size*sizeof(WCHAR))));
             if ( NULL == return_value )
             {
                 ERROR("Not enough memory to create full path\n");
@@ -1274,7 +1165,7 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
                                         return_value, return_size))
                 {
                     ASSERT("MultiByteToWideChar failure\n");
-                    InternalFree(pThread, return_value);
+                    InternalFree(return_value);
                     return_value = NULL;
                 }
                 else
@@ -1296,7 +1187,7 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
     }
 
     /* get our own copy of env_path so we can modify it */
-    env_path=InternalStrdup(pThread, env_path);
+    env_path=InternalStrdup(env_path);
     if(!env_path)
     {
         ERROR("Not enough memory to copy $PATH!\n");
@@ -1342,7 +1233,7 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
 
         /* build tentative full file name */
         int iLength = (strlen(cur_dir)+exe_name_length+2);
-        full_path = reinterpret_cast<LPSTR>(InternalMalloc(pThread, iLength));
+        full_path = reinterpret_cast<LPSTR>(InternalMalloc(iLength));
         if(!full_path)
         {
             ERROR("Not enough memory!\n");
@@ -1352,8 +1243,8 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
         if (strcpy_s(full_path, iLength, cur_dir) != SAFECRT_SUCCESS)
         {
             ERROR("strcpy_s failed!\n");
-            InternalFree(pThread, full_path);
-            InternalFree(pThread, env_path);
+            InternalFree(full_path);
+            InternalFree(env_path);
             return NULL;
         }
 
@@ -1362,8 +1253,8 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
             if (strcat_s(full_path, iLength, "/") != SAFECRT_SUCCESS)
             {
                 ERROR("strcat_s failed!\n");
-                InternalFree(pThread, full_path);
-                InternalFree(pThread, env_path);
+                InternalFree(full_path);
+                InternalFree(env_path);
                 return NULL;
             }
         }
@@ -1371,8 +1262,8 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
         if (strcat_s(full_path, iLength, exe_name) != SAFECRT_SUCCESS)
         {
             ERROR("strcat_s failed!\n");
-            InternalFree(pThread, full_path);
-            InternalFree(pThread, env_path);
+            InternalFree(full_path);
+            InternalFree(env_path);
             return NULL;
         }
 
@@ -1385,25 +1276,25 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
                 if(!realpath(full_path, real_path))
                 {
                     ERROR("realpath() failed!\n");
-                    InternalFree(pThread, full_path);
-                    InternalFree(pThread, env_path);
+                    InternalFree(full_path);
+                    InternalFree(env_path);
                     return NULL;
                 }
-                InternalFree(pThread, full_path);
-    
+                InternalFree(full_path);
+
                 return_size = MultiByteToWideChar(CP_ACP,0,real_path,-1,NULL,0);
                 if ( 0 == return_size )
                 {
                     ASSERT("MultiByteToWideChar failure\n");
-                    InternalFree(pThread, env_path);
+                    InternalFree(env_path);
                     return NULL;
                 }
 
-                return_value = reinterpret_cast<LPWSTR>(InternalMalloc(pThread, (return_size*sizeof(WCHAR))));
+                return_value = reinterpret_cast<LPWSTR>(InternalMalloc((return_size*sizeof(WCHAR))));
                 if ( NULL == return_value )
                 {
                     ERROR("Not enough memory to create full path\n");
-                    InternalFree(pThread, env_path);
+                    InternalFree(env_path);
                     return NULL;
                 }
 
@@ -1411,7 +1302,7 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
                                     return_size))
                 {
                     ASSERT("MultiByteToWideChar failure\n");
-                    InternalFree(pThread, return_value);
+                    InternalFree(return_value);
                     return_value = NULL;
                 }
                 else
@@ -1419,17 +1310,17 @@ static LPWSTR INIT_FindEXEPath(CPalThread *pThread, LPCSTR exe_name)
                     TRACE("found %s in %s; real path is %s\n", exe_name,
                           cur_dir,real_path);
                 }
-                InternalFree(pThread, env_path);
+                InternalFree(env_path);
                 return return_value;
             }
         }
         /* file doesn't exist : keep searching */
-        InternalFree(pThread, full_path);
+        InternalFree(full_path);
 
         /* path_ptr is NULL if there's no ':' after this directory */
         cur_dir=path_ptr;
     }
-    InternalFree(pThread, env_path);
+    InternalFree(env_path);
     TRACE("No %s found in $PATH (%s)\n", exe_name, MiscGetenv("PATH"));
 
 last_resort:
@@ -1452,7 +1343,7 @@ last_resort:
                 return NULL;
             }
 
-            return_value = reinterpret_cast<LPWSTR>(InternalMalloc(pThread, (return_size*sizeof(WCHAR))));
+            return_value = reinterpret_cast<LPWSTR>(InternalMalloc((return_size*sizeof(WCHAR))));
             if (NULL == return_value)
             {
                 ERROR("Not enough memory to create full path\n");
@@ -1464,7 +1355,7 @@ last_resort:
                                         return_value, return_size))
                 {
                     ASSERT("MultiByteToWideChar failure\n");
-                    InternalFree(pThread, return_value);
+                    InternalFree(return_value);
                     return_value = NULL;
                 }
                 else
@@ -1508,7 +1399,7 @@ last_resort:
         return NULL;
     }
 
-    return_value = reinterpret_cast<LPWSTR>(InternalMalloc(pThread, (return_size*sizeof(WCHAR))));
+    return_value = reinterpret_cast<LPWSTR>(InternalMalloc((return_size*sizeof(WCHAR))));
     if (NULL == return_value)
     {
         ERROR("Not enough memory to create full path\n");
@@ -1520,7 +1411,7 @@ last_resort:
                                 return_value, return_size))
         {
             ASSERT("MultiByteToWideChar failure\n");
-            InternalFree(pThread, return_value);
+            InternalFree(return_value);
             return_value = NULL;
         }
         else

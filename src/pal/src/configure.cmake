@@ -43,8 +43,6 @@ check_library_exists(pthread pthread_getattr_np "" HAVE_PTHREAD_GETATTR_NP)
 check_library_exists(pthread pthread_sigqueue "" HAVE_PTHREAD_SIGQUEUE)
 check_function_exists(sigreturn HAVE_SIGRETURN)
 check_function_exists(_thread_sys_sigreturn HAVE__THREAD_SYS_SIGRETURN)
-check_function_exists(setcontext HAVE_SETCONTEXT)
-check_function_exists(getcontext HAVE_GETCONTEXT)
 check_function_exists(copysign HAVE_COPYSIGN)
 check_function_exists(fsync HAVE_FSYNC)
 check_function_exists(futimes HAVE_FUTIMES)
@@ -290,6 +288,19 @@ int main(void)
 
   exit(-1 == max_priority || -1 == min_priority);
 }" HAVE_SCHED_GET_PRIORITY)
+set(CMAKE_REQUIRED_LIBRARIES pthread)
+check_cxx_source_runs("
+#include <stdlib.h>
+#include <sched.h>
+
+int main(void)
+{
+  if (sched_getcpu() >= 0)
+  {
+    exit(0);
+  }
+  exit(1);
+}" HAVE_SCHED_GETCPU)
 set(CMAKE_REQUIRED_LIBRARIES)
 check_cxx_source_runs("
 #include <stdlib.h>
@@ -342,6 +353,19 @@ int main()
   mach_absolute_time();
   exit(ret);
 }" HAVE_MACH_ABSOLUTE_TIME)
+check_cxx_source_runs("
+#include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
+
+int main()
+{
+  int ret;
+  struct timespec ts;
+  ret = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+
+  exit(ret);
+}" HAVE_CLOCK_THREAD_CPUTIME)
 check_cxx_source_runs("
 #include <stdlib.h>
 #include <sys/types.h>
@@ -874,7 +898,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL Darwin)
   set(PAL_PT_DETACH PT_DETACH)
   set(PAL_PT_READ_D PT_READ_D)
   set(PAL_PT_WRITE_D PT_WRITE_D)
-  set(USE_SIGNALS_FOR_THREAD_SUSPENSION 0)
   set(JA_JP_LOCALE_NAME ja_JP.SJIS)
   set(KO_KR_LOCALE_NAME ko_KR.eucKR)
   set(ZH_TW_LOCALE_NAME zh_TG.BIG5)
@@ -894,7 +917,6 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
   set(PAL_PT_DETACH PT_DETACH)
   set(PAL_PT_READ_D PT_READ_D)
   set(PAL_PT_WRITE_D PT_WRITE_D)
-  set(USE_SIGNALS_FOR_THREAD_SUSPENSION 1)
   set(JA_JP_LOCALE_NAME ja_JP_LOCALE_NOT_FOUND)
   set(KO_KR_LOCALE_NAME ko_KR_LOCALE_NOT_FOUND)
   set(ZH_TW_LOCALE_NAME zh_TW_LOCALE_NOT_FOUND)
@@ -925,7 +947,6 @@ else() # Anything else is Linux
   set(PAL_PT_DETACH PTRACE_DETACH)
   set(PAL_PT_READ_D PTRACE_PEEKDATA)
   set(PAL_PT_WRITE_D PTRACE_POKEDATA)
-  set(USE_SIGNALS_FOR_THREAD_SUSPENSION 1)
   set(JA_JP_LOCALE_NAME ja_JP_LOCALE_NOT_FOUND)
   set(KO_KR_LOCALE_NAME ko_KR_LOCALE_NOT_FOUND)
   set(ZH_TW_LOCALE_NAME zh_TW_LOCALE_NOT_FOUND)

@@ -115,6 +115,12 @@ namespace CorUnix
     InitializeEndingThreadsData(
         void
         );
+
+    BOOL
+    GetThreadTimesInternal(
+        IN HANDLE hThread,
+        OUT LPFILETIME lpKernelTime,
+        OUT LPFILETIME lpUserTime);
         
 #ifdef FEATURE_PAL_SXS
 #if HAVE_MACH_EXCEPTIONS
@@ -275,6 +281,8 @@ namespace CorUnix
                 CPalThread *pNewThread,
                 HANDLE *phThread
                 );
+
+        friend CatchHardwareExceptionHolder;
         
     private:
 
@@ -317,6 +325,10 @@ namespace CorUnix
 #if HAVE_MACH_THREADS
         mach_port_t m_machPortSelf;
 #endif 
+
+        // > 0 when there is an exception holder which causes h/w
+        // exceptions to be sent down the C++ exception chain.
+        int m_hardwareExceptionHolderCount;
 
         //
         // Start info
@@ -406,6 +418,7 @@ namespace CorUnix
 #if HAVE_MACH_THREADS
             m_machPortSelf(0),
 #endif            
+            m_hardwareExceptionHolderCount(0),
             m_lpStartAddress(NULL),
             m_lpStartParameter(NULL),
             m_bCreateSuspended(FALSE),
@@ -571,6 +584,12 @@ namespace CorUnix
             return m_machPortSelf;
         };
 #endif
+
+        bool 
+        IsHardwareExceptionsEnabled()
+        {
+            return m_hardwareExceptionHolderCount > 0;
+        }
 
         LPTHREAD_START_ROUTINE
         GetStartAddress(

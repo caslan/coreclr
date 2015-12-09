@@ -33,6 +33,7 @@ Abstract:
 #include "pal/utils.h"
 #include "pal/misc.h"
 #include "pal/virtual.h"
+#include "pal/stackstring.hpp"
 
 #include <errno.h>
 #if HAVE_POLL
@@ -283,7 +284,7 @@ CreateProcessA(
             palError = ERROR_INTERNAL_ERROR;
             goto done;
         }
-        ApplicationNameW = (LPWSTR)InternalMalloc(pThread, sizeof(WCHAR)*n);
+        ApplicationNameW = (LPWSTR)InternalMalloc(sizeof(WCHAR)*n);
         if(!ApplicationNameW)
         {
             ERROR("malloc() failed!\n");
@@ -303,7 +304,7 @@ CreateProcessA(
             palError = ERROR_INTERNAL_ERROR;
             goto done;
         }
-        CommandLineW = (LPWSTR)InternalMalloc(pThread, sizeof(WCHAR)*n);
+        CommandLineW = (LPWSTR)InternalMalloc(sizeof(WCHAR)*n);
         if(!CommandLineW)
         {
             ERROR("malloc() failed!\n");
@@ -322,7 +323,7 @@ CreateProcessA(
             palError = ERROR_INTERNAL_ERROR;
             goto done;
         }
-        CurrentDirectoryW = (LPWSTR)InternalMalloc(pThread, sizeof(WCHAR)*n);
+        CurrentDirectoryW = (LPWSTR)InternalMalloc(sizeof(WCHAR)*n);
         if(!CurrentDirectoryW)
         {
             ERROR("malloc() failed!\n");
@@ -356,9 +357,9 @@ CreateProcessA(
         lpProcessInformation
         );
 done:
-    InternalFree(pThread, ApplicationNameW);
-    InternalFree(pThread, CommandLineW);
-    InternalFree(pThread, CurrentDirectoryW);
+    InternalFree(ApplicationNameW);
+    InternalFree(CommandLineW);
+    InternalFree(CurrentDirectoryW);
 
     if (NO_ERROR != palError)
     {
@@ -560,7 +561,8 @@ CorUnix::InternalCreateProcess(
     int iFdErr = -1;
     
     pid_t processId;
-    char lpFileName[MAX_LONGPATH] ;
+    char * lpFileName;
+    PathCharString lpFileNamePS;
     char **lppArgv = NULL;
     UINT nArg;
     int  iRet;
@@ -580,7 +582,7 @@ CorUnix::InternalCreateProcess(
                lpApplicationName);
         palError = ERROR_INVALID_PARAMETER;
         goto InternalCreateProcessExit;
-    }
+    } 
 
     if (0 != (dwCreationFlags & ~(CREATE_SUSPENDED|CREATE_NEW_CONSOLE)))
     {
@@ -674,13 +676,20 @@ CorUnix::InternalCreateProcess(
         }
     }
 
+    lpFileName = lpFileNamePS.OpenStringBuffer(MAX_LONGPATH-1);
+    if (NULL == lpFileName)
+    {
+        palError = ERROR_NOT_ENOUGH_MEMORY;
+        goto InternalCreateProcessExit;
+    }
     if (!getFileName(lpApplicationName, lpCommandLine, lpFileName))
     {
         ERROR("Can't find executable!\n");
         palError = ERROR_FILE_NOT_FOUND;
         goto InternalCreateProcessExit;
     }
-
+    
+    lpFileNamePS.CloseBuffer(MAX_LONGPATH-1);
     /* check type of file */
     iRet = checkFileType(lpFileName);
 
@@ -698,8 +707,8 @@ CorUnix::InternalCreateProcess(
             if ( PAL_GetPALDirectoryA( lpFileName,
                                       (MAX_LONGPATH - (strlen(PROCESS_PELOADER_FILENAME)+1))))
             {
-                if ((strcat_s(lpFileName, sizeof(lpFileName), "/") != SAFECRT_SUCCESS) ||
-                    (strcat_s(lpFileName, sizeof(lpFileName), PROCESS_PELOADER_FILENAME) != SAFECRT_SUCCESS))
+                if ((strcat_s(lpFileName, lpFileNamePS.GetSizeOf(), "/") != SAFECRT_SUCCESS) ||
+                    (strcat_s(lpFileName, lpFileNamePS.GetSizeOf(), PROCESS_PELOADER_FILENAME) != SAFECRT_SUCCESS))
                 {
                     ERROR("strcpy_s/strcat_s failed!\n");
                     palError = ERROR_INTERNAL_ERROR;
@@ -753,7 +762,7 @@ CorUnix::InternalCreateProcess(
             }
         }
         EnvironmentEntries++;
-        EnvironmentArray = (char **)InternalMalloc(pThread, EnvironmentEntries * sizeof(char *));
+        EnvironmentArray = (char **)InternalMalloc(EnvironmentEntries * sizeof(char *));
 
         EnvironmentEntries = 0;
         // Convert the environment block to array of strings
@@ -1079,7 +1088,7 @@ InternalCreateProcessExit:
 
     if (EnvironmentArray)
     {
-        InternalFree(pThread, EnvironmentArray);
+        InternalFree(EnvironmentArray);
     }
 
     /* if we still have the file structures at this point, it means we 
@@ -1119,8 +1128,8 @@ InternalCreateProcessExit:
     /* free allocated memory */
     if (lppArgv)
     {
-        InternalFree (pThread, *lppArgv);
-        InternalFree (pThread, lppArgv);
+        InternalFree(*lppArgv);
+        InternalFree(lppArgv);
     }
 
     return palError;
@@ -1236,7 +1245,10 @@ ExitProcess(
         /* another thread has already initiated the termination process. we 
            could just block on the PALInitLock critical section, but then 
            PROCSuspendOtherThreads would hang... so sleep forever here, we're
-           terminating anyway */
+           terminating anyway 
+
+           Update: [TODO] PROCSuspendOtherThreads has been removed. Can this 
+           code be changed? */
         WARN("termination already started from another thread; blocking.\n");
         poll(NULL,0,INFTIM);
     }
@@ -1401,10 +1413,9 @@ void PROCCleanupProcess(BOOL bTerminateUnconditionally)
     /* Declare the beginning of shutdown */
     PALSetShutdownIntent();
 
-    PALCommonCleanup(PALCLEANUP_STEP_ONE, FALSE);
+    PALCommonCleanup();
 
-    /* This must be called after PALCommonCleanup(PALCLEANUP_STEP_ONE, ...)
-     */
+    /* This must be called after PALCommonCleanup */
     PALShutdown();
 }
 
@@ -1985,7 +1996,7 @@ CreateProcessModules(
                 if (!dup)
                 {
                     int cbModuleName = strlen(moduleName) + 1;
-                    ProcessModules *entry = (ProcessModules *)InternalMalloc(pThread, sizeof(ProcessModules) + cbModuleName);
+                    ProcessModules *entry = (ProcessModules *)InternalMalloc(sizeof(ProcessModules) + cbModuleName);
                     if (entry == NULL)
                     {
                         SetLastError(ERROR_NOT_ENOUGH_MEMORY);
@@ -2067,7 +2078,7 @@ CreateProcessModules(
                     if (!dup)
                     {
                         int cbModuleName = strlen(moduleName) + 1;
-                        ProcessModules *entry = (ProcessModules *)InternalMalloc(pThread, sizeof(ProcessModules) + cbModuleName);
+                        ProcessModules *entry = (ProcessModules *)InternalMalloc(sizeof(ProcessModules) + cbModuleName);
                         if (entry == NULL)
                         {
                             SetLastError(ERROR_NOT_ENOUGH_MEMORY);
@@ -2123,12 +2134,10 @@ Return
 void
 DestroyProcessModules(IN ProcessModules *listHead)
 {
-    CPalThread* pThread = InternalGetCurrentThread();	
-
     for (ProcessModules *entry = listHead; entry != NULL; )
     {
         ProcessModules *next = entry->Next;
-        InternalFree(pThread, entry);
+        InternalFree(entry);
         entry = next;
     }
 }
@@ -2304,7 +2313,6 @@ Abstract
     Initializes (or re-initializes) the saved command line and exe path.
 
 Parameter
-    pThread - the initial thread
     lpwstrCmdLine
     lpwstrFullPath
  
@@ -2317,7 +2325,6 @@ Notes
 
 PAL_ERROR
 CorUnix::InitializeProcessCommandLine(
-    CPalThread *pThread,
     LPWSTR lpwstrCmdLine,
     LPWSTR lpwstrFullPath
 )
@@ -2336,7 +2343,7 @@ CorUnix::InitializeProcessCommandLine(
         INT n = lstrlenW(lpwstrFullPath) + 1;
 
         int iLen = n;
-        initial_dir = reinterpret_cast<LPWSTR>(InternalMalloc(pThread, iLen*sizeof(WCHAR)));
+        initial_dir = reinterpret_cast<LPWSTR>(InternalMalloc(iLen*sizeof(WCHAR)));
         if (NULL == initial_dir)
         {
             ERROR("malloc() failed! (initial_dir) \n");
@@ -2347,18 +2354,18 @@ CorUnix::InitializeProcessCommandLine(
         if (wcscpy_s(initial_dir, iLen, lpwstrFullPath) != SAFECRT_SUCCESS)
         {
             ERROR("wcscpy_s failed!\n");
-            InternalFree(pThread, initial_dir);
+            InternalFree(initial_dir);
             palError = ERROR_INTERNAL_ERROR;
             goto exit;
         }
 
         lpwstr[0] = '/';
 
-        InternalFree(pThread, g_lpwstrAppDir);
+        InternalFree(g_lpwstrAppDir);
         g_lpwstrAppDir = initial_dir;
     }
 
-    InternalFree(pThread, g_lpwstrCmdLine);
+    InternalFree(g_lpwstrCmdLine);
     g_lpwstrCmdLine = lpwstrCmdLine;
 
 exit:
@@ -2523,10 +2530,10 @@ PROCCleanupInitialProcess(VOID)
     InternalEnterCriticalSection(pThread, &g_csProcess);
     
     /* Free the application directory */
-    InternalFree (pThread, g_lpwstrAppDir);
+    InternalFree(g_lpwstrAppDir);
     
     /* Free the stored command line */
-    InternalFree (pThread, g_lpwstrCmdLine);
+    InternalFree(g_lpwstrCmdLine);
 
     InternalLeaveCriticalSection(pThread, &g_csProcess);
 
@@ -2738,145 +2745,6 @@ PROCCleanupThreadSemIds(void)
 
 /*++
 Function:
-  PROCSuspendOtherThreads
-
-  Calls SuspendThread on all threads in the process, except the current 
-  thread. Used by PAL_Terminate.
-
-(no parameters, no return value)
---*/
-void PROCSuspendOtherThreads(void)
-{
-    PAL_ERROR palError = NO_ERROR;
-    CPalThread *pThread;
-    CPalThread *pTargetThread;
-    DWORD dwThreadId = 0;
-    DWORD dwLwpId = 0;
-    DWORD dwUnusedSuspendCount = 0;
-
-    TRACE("Terminating all threads except this one...\n");
-
-    pThread = InternalGetCurrentThread();
-        
-    while (TRUE)
-    {
-        PROCProcessLock();
-
-        pTargetThread = pGThreadList;
-        while (NULL != pTargetThread)
-        {
-            /* skip the current thread */
-            if (pTargetThread->GetThreadId() != pThread->GetThreadId())
-            {
-                /* skip already-suspended threads */
-                if (!pTargetThread->suspensionInfo.GetSuspendedForShutdown() && pTargetThread->GetThreadType() != SignalHandlerThread)
-                {
-                    pTargetThread->suspensionInfo.SetSuspendedForShutdown(TRUE);
-
-                    //
-                    // Add a reference to the thread data to keep
-                    // it valid after we release the process lock
-                    //
-                    
-                    pTargetThread->AddThreadReference();
-                    break;
-                }
-            }
-            
-            pTargetThread = pTargetThread->GetNext();
-        }
-        
-        /* unlock the process, we must not hold any critical sections when we 
-           suspend the thread */
-
-        if (pTargetThread)
-        {
-            dwThreadId = pTargetThread->GetThreadId();
-            dwLwpId = pTargetThread->GetLwpId();
-        }
-
-        PROCProcessUnlock();
-
-        if(NULL == pTargetThread)
-        {
-            /* reached end of the list : all other threads have been suspended or have died. */
-            break;
-        }
-
-        TRACE("Suspending thread {tid=%u lwpid=%u pThread=%p} ...\n", 
-              (unsigned int)dwThreadId, (unsigned int)dwLwpId, pTargetThread);
-
-        palError = pThread->suspensionInfo.InternalSuspendThreadFromData(
-            pThread,
-            pTargetThread,
-            &dwUnusedSuspendCount
-            );
-        
-        if (NO_ERROR != palError)
-        {
-             _ASSERT_MSG(pTargetThread->synchronizationInfo.GetThreadState() == TS_DONE, 
-                "Failed to suspend thread {tid=%u lwpid=%u pThread=%p} with error %d\n", 
-                (unsigned int)dwThreadId, (unsigned int)dwLwpId, pTargetThread, palError);
-        }
-
-        //
-        // Release our reference on the target thread data
-        //
-
-        pTargetThread->ReleaseThreadReference();
-        
-    }
-
-    /* wait for threads that are exiting, and thus couldn't be suspended, to 
-        actually die before proceeding with cleanup. */
-    WaitForEndingThreads();
-
-    TRACE("All threads except this one are now suspended or have died.\n");
-    
-#if USE_SYSV_SEMAPHORES
-    PROCCleanupThreadSemIds();
-#endif
-
-}
-
-/*++
-Function:
-  PROCCondemnOtherThreads
-
-  Instruct the synchronization manager to abandon any objects owned
-  by threads in this process (including the calling thread).
-
-(no parameters, no return value)
---*/
-void PROCCondemnOtherThreads(void)
-{
-    CPalThread *pThread;
-    CPalThread *pTargetThread;
-
-    pThread = InternalGetCurrentThread();
-
-    TRACE("Marking all other threads as suspended...\n");
-    PROCProcessLock();
-
-    pTargetThread = pGThreadList;
-    
-    while (NULL != pTargetThread)
-    {
-        g_pSynchronizationManager->AbandonObjectsOwnedByThread(
-            pThread,
-            pTargetThread
-            );            
-
-        pTargetThread = pTargetThread->GetNext();
-    }
-    
-    PROCProcessUnlock();
-    TRACE("All threads except this one are now condemned\n");
-}
-
-
-/*++
-Function:
   TerminateCurrentProcessNoExit
 
 Abstract:
@@ -2907,7 +2775,11 @@ CorUnix::TerminateCurrentProcessNoExit(BOOL bTerminateUnconditionally)
         /* another thread has already initiated the termination process. we
         could just block on the PALInitLock critical section, but then
         PROCSuspendOtherThreads would hang... so sleep forever here, we're
-        terminating anyway */
+        terminating anyway
+
+        Update: [TODO] PROCSuspendOtherThreads has been removed. Can this 
+           code be changed? */
+
         /* note that if *this* thread has already started the termination
         process, we want to proceed. the only way this can happen is if a
         call to DllMain (from ExitProcess) brought us here (because DllMain
@@ -3203,7 +3075,8 @@ getFileName(
 {
     LPWSTR lpEnd;
     WCHAR wcEnd;
-    char lpFileName[MAX_LONGPATH];
+    char * lpFileName;
+    PathCharString lpFileNamePS;
     char *lpTemp;
 
     if (lpApplicationName)
@@ -3286,13 +3159,22 @@ getFileName(
         *lpEnd = 0x0000;
 
         /* Convert to ASCII */
-        if (!WideCharToMultiByte(CP_ACP, 0, lpCommandLine, -1,
-                                 lpFileName, MAX_LONGPATH, NULL, NULL))
+        int size = 0;
+        int length = (PAL_wcslen(lpCommandLine)+1) * sizeof(WCHAR);
+        lpFileName = lpFileNamePS.OpenStringBuffer(length);
+        if (NULL == lpFileName)
+        {
+            ERROR("Not Enough Memory!\n");
+            return FALSE;
+        }
+        if (!(size = WideCharToMultiByte(CP_ACP, 0, lpCommandLine, -1,
+                                 lpFileName, length, NULL, NULL)))
         {
             ASSERT("WideCharToMultiByte failure\n");
             return FALSE;
         }
 
+        lpFileNamePS.CloseBuffer(size);
         /* restore last character */
         *lpEnd = wcEnd;
 
@@ -3602,7 +3484,7 @@ buildArgv(
     pThread = InternalGetCurrentThread();
     /* make sure to allocate enough space, up for the worst case scenario */
     int iLength = (iWlen + strlen(PROCESS_PELOADER_FILENAME) + strlen(lpAppPath) + 2);
-    lpAsciiCmdLine = (char *) InternalMalloc(pThread, iLength);
+    lpAsciiCmdLine = (char *) InternalMalloc(iLength);
 
     if (lpAsciiCmdLine == NULL)
     {
@@ -3713,7 +3595,7 @@ buildArgv(
                                  pChar, iWlen+1, NULL, NULL))
         {
             ASSERT("Unable to convert to a multibyte string\n");
-            InternalFree (pThread, lpAsciiCmdLine);
+            InternalFree(lpAsciiCmdLine);
             return NULL;
         }
     }
@@ -3797,11 +3679,11 @@ buildArgv(
 
     /* allocate lppargv according to the number of arguments
        in the command line */
-    lppArgv = (char **) InternalMalloc (pThread, (((*pnArg)+1) * sizeof(char *)));
+    lppArgv = (char **) InternalMalloc((((*pnArg)+1) * sizeof(char *)));
 
     if (lppArgv == NULL)
     {
-        InternalFree (pThread, lpAsciiCmdLine);
+        InternalFree(lpAsciiCmdLine);
         return NULL;
     }
 
@@ -3955,7 +3837,7 @@ getPath(
     pThread = InternalGetCurrentThread();
     /* Then try to look in the path */
     int iLen2 = strlen(MiscGetenv("PATH"))+1;
-    lpPath = (LPSTR) InternalMalloc(pThread, iLen2);
+    lpPath = (LPSTR) InternalMalloc(iLen2);
 
     if (!lpPath)
     {
@@ -3994,7 +3876,7 @@ getPath(
         /* verify if the path fit in the OUT parameter */
         if (slashLen + nextLen + strlen (lpFileName) >= iLen)
         {
-            InternalFree (pThread, lpPath);
+            InternalFree(lpPath);
             ERROR("buffer too small for full path\n");
             return FALSE;
         }
@@ -4012,14 +3894,14 @@ getPath(
         if (access (lpPathFileName, F_OK) == 0)
         {
             TRACE("Found %s in $PATH element %s\n", lpFileName, lpNext);
-            InternalFree(pThread, lpPath);
+            InternalFree(lpPath);
             return TRUE;
         }
 
         lpNext = lpCurrent;  /* search in the next directory */
     }
 
-    InternalFree (pThread, lpPath);
+    InternalFree(lpPath);
     TRACE("File %s not found in $PATH\n", lpFileName);
     return FALSE;
 }

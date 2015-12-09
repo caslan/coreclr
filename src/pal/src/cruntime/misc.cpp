@@ -47,71 +47,6 @@ CRITICAL_SECTION gcsEnvironment;
 
 using namespace CorUnix;
 
-namespace CorUnix
-{
-    int InternalRand(CPalThread *pthrCurrent);
-
-    /*++
-    Function:
-    InternalRand
-
-    Wrapper for rand.
-    --*/
-    int
-    InternalRand(
-        CPalThread *pthrCurrent
-        )
-    {
-        int nRet;
-        pthrCurrent->suspensionInfo.EnterUnsafeRegion();
-        nRet = rand();
-        pthrCurrent->suspensionInfo.LeaveUnsafeRegion();
-        return nRet;
-    }
-}
-
-/*++
-Function:
-  _rotl
-
-See MSDN doc.
---*/
-unsigned int
-__cdecl 
-_rotl( unsigned int value, int shift )
-{
-    unsigned int retval = 0;
-
-    PERF_ENTRY(_rotl);
-    ENTRY("_rotl( value:%u shift=%d )\n", value, shift );   
-    shift &= 0x1f;
-    retval = ( value << shift ) | ( value >> ( sizeof( int ) * CHAR_BIT - shift ));
-    LOGEXIT("_rotl returns unsigned int %u\n", retval);
-    PERF_EXIT(_rotl);
-    return retval;
-}
-
-/*++
-Function:
-  _rotr
-
-See MSDN doc.
---*/
-unsigned int
-__cdecl 
-_rotr( unsigned int value, int shift )
-{
-    unsigned int retval;
-
-    PERF_ENTRY(_rotr);
-    ENTRY("_rotr( value:%u shift=%d )\n", value, shift );    
-    shift &= 0x1f;
-    retval = ( value >> shift ) | ( value << ( sizeof( int ) * CHAR_BIT - shift ) );
-    LOGEXIT("_rotr returns unsigned int %u\n", retval);
-    PERF_EXIT(_rotr);
-    return retval;
-}
-
 /*++
 Function:
   _gcvt_s
@@ -315,7 +250,7 @@ PAL_rand(void)
     PERF_ENTRY(rand);
     ENTRY("rand(void)\n");
 
-    ret = (InternalRand(InternalGetCurrentThread()) % (PAL_RAND_MAX + 1));
+    ret = (rand() % (PAL_RAND_MAX + 1));
 
     LOGEXIT("rand() returning %d\n", ret);
     PERF_EXIT(rand);
@@ -548,7 +483,7 @@ BOOL MiscPutenv(const char *string, BOOL deleteIfEmpty)
         // set the variable's value to "". deleteIfEmpty will be FALSE in
         // that case.
         length = strlen(string);
-        copy = (char *) InternalMalloc(pthrCurrent, length);
+        copy = (char *) InternalMalloc(length);
         if (copy == NULL)
         {
             goto done;
@@ -563,7 +498,7 @@ BOOL MiscPutenv(const char *string, BOOL deleteIfEmpty)
         // See if we are replacing an item or adding one.
         
         // Make our copy up front, since we'll use it either way.
-        copy = InternalStrdup(pthrCurrent, string);
+        copy = InternalStrdup(string);
         if (copy == NULL)
         {
             goto done;
@@ -613,7 +548,7 @@ BOOL MiscPutenv(const char *string, BOOL deleteIfEmpty)
             
             if (sAllocatedEnviron) {
                 if (NULL == (newEnviron = 
-                        (char **)InternalRealloc(pthrCurrent, palEnvironment, (i + 2) * sizeof(char *))))
+                        (char **)InternalRealloc(palEnvironment, (i + 2) * sizeof(char *))))
                 {
                     goto done;
                 }
@@ -621,7 +556,7 @@ BOOL MiscPutenv(const char *string, BOOL deleteIfEmpty)
             else
             {
                 // Allocate palEnvironment ourselves so we can realloc it later.
-                newEnviron = (char **)InternalMalloc(pthrCurrent, (i + 2) * sizeof(char *));
+                newEnviron = (char **)InternalMalloc((i + 2) * sizeof(char *));
                 if (newEnviron == NULL)
                 {
                     goto done;
@@ -651,7 +586,7 @@ done:
     }
     if (NULL != copy)
     {
-        InternalFree(pthrCurrent, copy);
+        InternalFree(copy);
     }
     return result;
 }

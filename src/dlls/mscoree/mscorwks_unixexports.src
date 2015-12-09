@@ -4,6 +4,12 @@ coreclr_execute_assembly
 coreclr_initialize
 coreclr_shutdown
 
+; il{d}asm
+MetaDataGetDispenser
+GetMetaDataInternalInterface
+GetMetaDataInternalInterfaceFromPublic
+GetMetaDataPublicInterfaceFromInternal
+
 ; Obsolete Unix hosting API, to be removed
 ExecuteAssembly
 
@@ -22,6 +28,7 @@ CloseHandle
 CoCreateGuid
 CopyFileW
 CoTaskMemAlloc
+CoTaskMemRealloc
 CoTaskMemFree
 CreateDirectoryW
 CreateEventW
@@ -58,6 +65,7 @@ GetTempFileNameW
 GetTempPathW
 LeaveCriticalSection
 LocalAlloc
+LocalReAlloc
 LocalFree
 LockFile
 lstrlenA
@@ -80,7 +88,6 @@ ReleaseSemaphore
 RemoveDirectoryW
 ResetEvent
 RtlZeroMemory
-SetConsoleCtrlHandler
 SetCurrentDirectoryW
 SetEndOfFile
 SetEnvironmentVariableW

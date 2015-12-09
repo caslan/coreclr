@@ -58,7 +58,6 @@
 #include "runtimehandles.h"
 #include "sigbuilder.h"
 #include "openum.h"
-
 #ifdef HAVE_GCCOVER
 #include "gccover.h"
 #endif // HAVE_GCCOVER
@@ -1651,7 +1650,6 @@ void CEEInfo::getFieldInfo (CORINFO_RESOLVED_TOKEN * pResolvedToken,
     DWORD fieldFlags = 0;
 
     pResult->offset = pField->GetOffset();
-
     if (pField->IsStatic())
     {
 #ifdef FEATURE_LEGACYNETCF
@@ -1850,7 +1848,6 @@ void CEEInfo::getFieldInfo (CORINFO_RESOLVED_TOKEN * pResolvedToken,
 
     if (!(flags & CORINFO_ACCESS_INLINECHECK))
     {
-
     //get the field's type.  Grab the class for structs.
     pResult->fieldType = getFieldTypeInternal(pResolvedToken->hField, &pResult->structType, pResolvedToken->hClass);
 
@@ -2568,9 +2565,78 @@ bool CEEInfo::getSystemVAmd64PassStructInRegisterDescriptor(
                                                 /*IN*/  CORINFO_CLASS_HANDLE structHnd,
                                                 /*OUT*/ SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR* structPassInRegDescPtr)
 {
-    LIMITED_METHOD_CONTRACT;
+    CONTRACTL {
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
 
+#if defined(FEATURE_UNIX_AMD64_STRUCT_PASSING_ITF)
+    JIT_TO_EE_TRANSITION();
+
+    _ASSERTE(structPassInRegDescPtr != nullptr);
+    TypeHandle th(structHnd);
+
+    structPassInRegDescPtr->passedInRegisters = false;
+    
+    // Make sure this is a value type.
+    if (th.IsValueType())
+    {
+        _ASSERTE(CorInfoType2UnixAmd64Classification(th.GetInternalCorElementType()) == SystemVClassificationTypeStruct);
+
+        // The useNativeLayout in this case tracks whether the classification
+        // is for a native layout of the struct or not.
+        // If the struct has special marshaling it has a native layout. 
+        // In such cases the classifier needs to use the native layout.
+        // For structs with no native layout, the managed layout should be used
+        // even if classified for the purposes of marshaling/PInvoke passing.
+        bool useNativeLayout = false;
+        MethodTable* methodTablePtr = nullptr;
+        if (!th.IsTypeDesc())
+        {
+            methodTablePtr = th.AsMethodTable();
+        }
+        else
+        {
+            _ASSERTE(th.IsNativeValueType());
+
+            useNativeLayout = true;
+            methodTablePtr = th.AsNativeValueType();
+        }
+        _ASSERTE(methodTablePtr != nullptr);
+
+        bool canPassInRegisters = useNativeLayout ? methodTablePtr->GetLayoutInfo()->IsNativeStructPassedInRegisters()
+                                                : methodTablePtr->IsRegPassedStruct();
+        if (canPassInRegisters)
+        {
+            SystemVStructRegisterPassingHelper helper((unsigned int)th.GetSize());
+            bool result = methodTablePtr->ClassifyEightBytes(&helper, 0, 0, useNativeLayout);
+
+            // The answer must be true at this point.
+            _ASSERTE(result);
+            structPassInRegDescPtr->passedInRegisters = true;
+
+            structPassInRegDescPtr->eightByteCount = helper.eightByteCount;
+            _ASSERTE(structPassInRegDescPtr->eightByteCount <= CLR_SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_PASS_IN_REGISTERS);
+
+            for (unsigned int i = 0; i < CLR_SYSTEMV_MAX_EIGHTBYTES_COUNT_TO_PASS_IN_REGISTERS; i++)
+            {
+                structPassInRegDescPtr->eightByteClassifications[i] = helper.eightByteClassifications[i];
+                structPassInRegDescPtr->eightByteSizes[i] = helper.eightByteSizes[i];
+                structPassInRegDescPtr->eightByteOffsets[i] = helper.eightByteOffsets[i];
+            }
+        }
+
+        _ASSERTE(structPassInRegDescPtr->passedInRegisters == canPassInRegisters);
+    }
+
+    EE_TO_JIT_TRANSITION();
+
+    return true;
+#else // !defined(FEATURE_UNIX_AMD64_STRUCT_PASSING_ITF)
     return false;
+#endif // !defined(FEATURE_UNIX_AMD64_STRUCT_PASSING_ITF)
 }
 
 /*********************************************************************/
@@ -3263,7 +3329,7 @@ void CEEInfo::ComputeRuntimeLookupForSharedGenericToken(DictionaryEntryKind entr
 
     BOOL fInstrument = FALSE;
 
-#ifdef FEATURE_PREJIT
+#ifdef FEATURE_NATIVE_IMAGE_GENERATION
     // This will make sure that when IBC logging is turned on we will go through a version
     // of JIT_GenericHandle which logs the access. Note that we still want the dictionaries
     // to be populated to prepopulate the types at NGen time.
@@ -3272,7 +3338,7 @@ void CEEInfo::ComputeRuntimeLookupForSharedGenericToken(DictionaryEntryKind entr
     {
         fInstrument = TRUE;
     }
-#endif // FEATURE_PREJIT
+#endif // FEATURE_NATIVE_IMAGE_GENERATION
 
     // If we've got a  method type parameter of any kind then we must look in the method desc arg
     if (pContextMD->RequiresInstMethodDescArg())
@@ -5099,13 +5165,13 @@ void * CEEInfo::getArrayInitializationData(
     if (!pField                    ||
         !pField->IsRVA()           ||
         (pField->LoadSize() < size)
-#ifdef FEATURE_PREJIT
+#ifdef FEATURE_NATIVE_IMAGE_GENERATION
         // This will make sure that when IBC logging is on, the array initialization happens thru 
         // COMArrayInfo::InitializeArray. This gives a place to put the IBC probe that can help
         // separate hold and cold RVA blobs.
         || (IsCompilingForNGen() &&
             GetAppDomain()->ToCompilationDomain()->m_fForceInstrument)
-#endif // FEATURE_PREJIT
+#endif // FEATURE_NATIVE_IMAGE_GENERATION
         )
     {
         result = NULL;
@@ -6687,14 +6753,14 @@ CorInfoHelpFunc CEEInfo::getSecurityPrologHelper(CORINFO_METHOD_HANDLE ftn)
 
     JIT_TO_EE_TRANSITION();
 
-#ifdef FEATURE_PREJIT
+#ifdef FEATURE_NATIVE_IMAGE_GENERATION
     // This will make sure that when IBC logging is on, we call the slow helper with IBC probe
     if (IsCompilingForNGen() &&
         GetAppDomain()->ToCompilationDomain()->m_fForceInstrument)
     {
         result = CORINFO_HELP_SECURITY_PROLOG_FRAMED;
     }
-#endif // FEATURE_PREJIT
+#endif // FEATURE_NATIVE_IMAGE_GENERATION
 
     if (result == CORINFO_HELP_UNDEF)
     {

@@ -494,6 +494,7 @@ void StompWriteBarrierEphemeral(void)
 #ifndef CROSSGEN_COMPILE
 void LazyMachState::unwindLazyState(LazyMachState* baseState,
                                     MachState* unwoundstate,
+                                    DWORD threadId,
                                     int funCallDepth,
                                     HostCallPreference hostCallPreference)
 {
@@ -1052,7 +1053,7 @@ void  DispatchHolder::Initialize(PCODE implTarget, PCODE failTarget, size_t expe
 
     // nop - insert padding
     _stub._entryPoint[n++] = 0xbf00;
-	
+    
     _ASSERTE(n == DispatchStub::entryPointLen);
 
     // Make sure that the data members below are aligned

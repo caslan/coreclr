@@ -40,9 +40,9 @@ internal class CustomAssemblyResolver : AssemblyLoadContext
 
         string strBVTRoot = Environment.GetEnvironmentVariable("BVT_ROOT");
         if (String.IsNullOrEmpty(strBVTRoot))
-            strBVTRoot = Directory.GetCurrentDirectory() + "\\Tests";
+            strBVTRoot = Path.Combine(Directory.GetCurrentDirectory(), "Tests");
 
-        string strPath = strBVTRoot + "\\" + assemblyName.Name + ".exe";
+        string strPath = Path.Combine(strBVTRoot, assemblyName.Name + ".exe");
 
         Console.WriteLine("Incoming AssemblyName: {0}\n", assemblyName.ToString());
         Console.WriteLine("Trying to Load: {0}\n", strPath);
@@ -500,7 +500,7 @@ public class ReliabilityFramework
                 _logger.CloseLog();
             }
 
-            if ((testSet.PercentPassIsPass != -1 && ((_failCount * 100) / _testsRanCount) < (100 - testSet.PercentPassIsPass)))
+            if ((testSet.PercentPassIsPass != -1 && _failCount > 0 && ((_failCount * 100) / _testsRanCount) < (100 - testSet.PercentPassIsPass)))
             {
                 Console.WriteLine("Some tests failed, but below the fail percent ({0} ran, {1} failed, perecent={2})", _testsRanCount, _failCount, testSet.PercentPassIsPass);
                 _totalSuccess = true;
@@ -636,9 +636,9 @@ public class ReliabilityFramework
         if (myProcessName == null)
         {
             myProcessName = System.Windows.Forms.Application.ExecutablePath;
-            if (myProcessName.LastIndexOf("\\") != -1)
+            if (myProcessName.LastIndexOf(Path.PathSeparator) != -1)
             {
-                myProcessName = myProcessName.Substring(myProcessName.LastIndexOf("\\") + 1);
+                myProcessName = myProcessName.Substring(myProcessName.LastIndexOf(Path.PathSeparator) + 1);
                 if (myProcessName.LastIndexOf(".") != -1)
                 {
                     myProcessName = myProcessName.Substring(0, myProcessName.LastIndexOf("."));

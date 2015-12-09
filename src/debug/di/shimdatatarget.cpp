@@ -68,22 +68,15 @@ ULONG STDMETHODCALLTYPE ShimDataTarget::Release()
     return ref;
 }
 
-
 //---------------------------------------------------------------------------------------
 //
 // Get the OS Process ID that this DataTarget is for.
 //
 // Return Value: 
 //     The OS PID of the process this data target is representing.
-HRESULT STDMETHODCALLTYPE ShimDataTarget::GetPid(DWORD *pdwProcessId)
+DWORD ShimDataTarget::GetPid()
 {
-    if (pdwProcessId == NULL)  
-    {
-        return E_INVALIDARG;
-    }
-
-    *pdwProcessId = m_processId;
-    return S_OK;
+    return m_processId;
 }
 
 //---------------------------------------------------------------------------------------

@@ -1027,6 +1027,11 @@ public:
         return OperIsCopyBlkOp(OperGet());
     }
 
+    bool            OperIsPutArgStk() const
+    {
+        return gtOper == GT_PUTARG_STK;
+    }
+
     bool            OperIsAddrMode() const
     {
         return OperIsAddrMode(OperGet());
@@ -1081,23 +1086,25 @@ public:
     int             OperIsArithmetic() const
     {
         genTreeOps op = OperGet();
-        return     op==GT_ADD 
-                || op==GT_SUB        
-                || op==GT_MUL 
+        return     op==GT_ADD
+                || op==GT_SUB
+                || op==GT_MUL
                 || op==GT_DIV
                 || op==GT_MOD
-        
+
                 || op==GT_UDIV
                 || op==GT_UMOD
 
-                || op==GT_OR 
+                || op==GT_OR
                 || op==GT_XOR
                 || op==GT_AND
 
                 || op==GT_LSH
                 || op==GT_RSH
-                || op==GT_RSZ;        
-        
+                || op==GT_RSZ
+
+                || op==GT_ROL
+                || op==GT_ROR;
     }
 
     static
@@ -1125,7 +1132,7 @@ public:
     static
     int             OperIsSimple(genTreeOps gtOper)
     {
-        return  (OperKind(gtOper) & GTK_SMPOP  ) != 0;
+        return (OperKind(gtOper) & GTK_SMPOP  ) != 0;
     }
 
     static
@@ -1294,7 +1301,7 @@ public:
 
     static
     inline bool RequiresNonNullOp2(genTreeOps oper);
-
+    bool IsListOfLclFlds();
 #endif // DEBUG
 
     inline bool IsZero();
@@ -2277,7 +2284,7 @@ struct GenTreeColon: public GenTreeOp
 /* gtCall   -- method call      (GT_CALL) */
 typedef class fgArgInfo *  fgArgInfoPtr;
 
-struct GenTreeCall: public GenTree
+struct GenTreeCall final : public GenTree
 {
     GenTreePtr        gtCallObjp;             // The instance argument ('this' pointer)
     GenTreeArgList*   gtCallArgs;             // The list of arguments in original evaluation order
@@ -2296,6 +2303,14 @@ struct GenTreeCall: public GenTree
     CORINFO_SIG_INFO* callSig;                // Used by tail calls and to register callsites with the EE
 
     regMaskTP         gtCallRegUsedMask;      // mask of registers used to pass parameters
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+    SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
+
+    void SetRegisterReturningStructState(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR& structDescIn)
+    {
+        structDesc.CopyFrom(structDescIn);
+    }
+#endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
 
 #define     GTF_CALL_M_EXPLICIT_TAILCALL       0x0001  // GT_CALL -- the call is "tail" prefixed and importer has performed tail call checks
 #define     GTF_CALL_M_TAILCALL                0x0002  // GT_CALL -- the call is a tailcall
@@ -2438,9 +2453,12 @@ struct GenTreeCall: public GenTree
 
     GenTreeCall(var_types type) : 
         GenTree(GT_CALL, type) 
-        {}
+    {
+    }
 #if DEBUGGABLE_GENTREE
-    GenTreeCall() : GenTree() {}
+    GenTreeCall() : GenTree()
+    {
+    }
 #endif
 };
 
@@ -3024,7 +3042,7 @@ struct GenTreeRetExpr: public GenTree
 {
     GenTreePtr      gtInlineCandidate;
 
-#ifdef _TARGET_ARM_
+#if defined(_TARGET_ARM_) || defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
     CORINFO_CLASS_HANDLE gtRetClsHnd;
 #endif
 
@@ -3243,10 +3261,26 @@ struct GenTreePutArgStk: public GenTreeUnOp
                                   // Fast tail calls set this to true.
                                   // In future if we need to add more such bool fields consider bit fields.
 
-    GenTreePutArgStk(genTreeOps oper, var_types type, unsigned slotNum, bool _putInIncomingArgArea = false
-                DEBUG_ARG(GenTreePtr callNode = NULL) DEBUG_ARG(bool largeNode = false)) : 
-                GenTreeUnOp(oper, type DEBUG_ARG(largeNode)),
-                gtSlotNum(slotNum), putInIncomingArgArea(_putInIncomingArgArea)
+    GenTreePutArgStk(
+            genTreeOps oper,
+            var_types type,
+            unsigned slotNum
+            FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY_ARG(unsigned numSlots)
+            FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY_ARG(bool isStruct),
+            bool _putInIncomingArgArea = false
+            DEBUG_ARG(GenTreePtr callNode = NULL)
+            DEBUG_ARG(bool largeNode = false))
+        : 
+        GenTreeUnOp(oper, type DEBUG_ARG(largeNode)),
+        gtSlotNum(slotNum),
+        putInIncomingArgArea(_putInIncomingArgArea)
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+        , gtPutArgStkKind(PutArgStkKindInvalid),
+        gtNumSlots(numSlots),
+        gtIsStruct(isStruct),
+        gtNumberReferenceSlots(0),
+        gtGcPtrs(nullptr)
+#endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
     {
 #ifdef DEBUG
         gtCall = callNode;
@@ -3254,22 +3288,53 @@ struct GenTreePutArgStk: public GenTreeUnOp
     }
 
 
-    GenTreePutArgStk(genTreeOps oper, var_types type, GenTreePtr op1, unsigned slotNum, bool _putInIncomingArgArea = false
-                DEBUG_ARG(GenTreePtr callNode = NULL) DEBUG_ARG(bool largeNode = false)) : 
-                GenTreeUnOp(oper, type, op1 DEBUG_ARG(largeNode)), 
-                gtSlotNum(slotNum), putInIncomingArgArea(_putInIncomingArgArea)
+    GenTreePutArgStk(
+            genTreeOps oper,
+            var_types type,
+            GenTreePtr op1,
+            unsigned slotNum
+            FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY_ARG(unsigned numSlots)
+            FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY_ARG(bool isStruct),
+            bool _putInIncomingArgArea = false
+            DEBUG_ARG(GenTreePtr callNode = NULL)
+            DEBUG_ARG(bool largeNode = false))
+        :
+        GenTreeUnOp(oper, type, op1 DEBUG_ARG(largeNode)), 
+        gtSlotNum(slotNum),
+        putInIncomingArgArea(_putInIncomingArgArea)
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+        , gtPutArgStkKind(PutArgStkKindInvalid),
+        gtNumSlots(numSlots),
+        gtIsStruct(isStruct),
+        gtNumberReferenceSlots(0),
+        gtGcPtrs(nullptr)
+#endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
     {
 #ifdef DEBUG
         gtCall = callNode;
 #endif
     }
 
-#else  // !FEATURE_FASTTAIL_CALL
+#else  // !FEATURE_FASTTAILCALL
 
-    GenTreePutArgStk(genTreeOps oper, var_types type, unsigned slotNum
-                DEBUG_ARG(GenTreePtr callNode = NULL) DEBUG_ARG(bool largeNode = false)) : 
-                GenTreeUnOp(oper, type DEBUG_ARG(largeNode)),
-                gtSlotNum(slotNum)
+    GenTreePutArgStk(
+            genTreeOps oper,
+            var_types type,
+            unsigned slotNum
+            FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY_ARG(unsigned numSlots)
+            FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY_ARG(bool isStruct)
+            DEBUG_ARG(GenTreePtr callNode = NULL)
+            DEBUG_ARG(bool largeNode = false))
+        :
+        GenTreeUnOp(oper, type DEBUG_ARG(largeNode)),
+        gtSlotNum(slotNum)
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+        , gtPutArgStkKind(PutArgStkKindInvalid),
+        gtNumSlots(numSlots),
+        gtIsStruct(isStruct),
+        gtNumberReferenceSlots(0),
+        gtGcPtrs(nullptr)
+#endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
     {
 #ifdef DEBUG
         gtCall = callNode;
@@ -3277,10 +3342,25 @@ struct GenTreePutArgStk: public GenTreeUnOp
     }
 
 
-    GenTreePutArgStk(genTreeOps oper, var_types type, GenTreePtr op1, unsigned slotNum
-                DEBUG_ARG(GenTreePtr callNode = NULL) DEBUG_ARG(bool largeNode = false)) : 
-                GenTreeUnOp(oper, type, op1 DEBUG_ARG(largeNode)), 
-                gtSlotNum(slotNum)
+    GenTreePutArgStk(
+            genTreeOps oper,
+            var_types type,
+            GenTreePtr op1,
+            unsigned slotNum
+            FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY_ARG(unsigned numSlots)
+            FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY_ARG(bool isStruct)
+            DEBUG_ARG(GenTreePtr callNode = NULL)
+            DEBUG_ARG(bool largeNode = false))
+        :
+        GenTreeUnOp(oper, type, op1 DEBUG_ARG(largeNode)), 
+        gtSlotNum(slotNum)
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+        , gtPutArgStkKind(PutArgStkKindInvalid),
+        gtNumSlots(numSlots),
+        gtIsStruct(isStruct),
+        gtNumberReferenceSlots(0),
+        gtGcPtrs(nullptr)
+#endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
     {
 #ifdef DEBUG
         gtCall = callNode;
@@ -3288,9 +3368,58 @@ struct GenTreePutArgStk: public GenTreeUnOp
     }
 #endif // FEATURE_FASTTAILCALL
 
+    unsigned getArgOffset() { return gtSlotNum * TARGET_POINTER_SIZE; }
+
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+    unsigned getArgSize() { return gtNumSlots * TARGET_POINTER_SIZE; }
+#endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
+
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+    //------------------------------------------------------------------------
+    // setGcPointers: Sets the number of references and the layout of the struct object returned by the VM.
+    //
+    // Arguments:
+    //    numPointers - Number of pointer references.
+    //    pointers    - layout of the struct (with pointers marked.)
+    //
+    // Return Value:
+    //    None
+    //
+    // Notes:
+    //    This data is used in the codegen for GT_PUTARG_STK to decide how to copy the struct to the stack by value.
+    //    If no pointer references are used, block copying instructions are used.
+    //    Otherwise the pointer reference slots are copied atomically in a way that gcinfo is emitted.
+    //    Any non pointer references between the pointer reference slots are copied in block fashion.
+    //
+    void setGcPointers(unsigned numPointers, BYTE* pointers)
+    {
+        gtNumberReferenceSlots = numPointers;
+        gtGcPtrs = pointers;
+    }
+#endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
+
 #ifdef DEBUG
     GenTreePtr      gtCall;                // the call node to which this argument belongs
 #endif
+
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+    // Instruction selection: during codegen time, what code sequence we will be using
+    // to encode this operation.
+
+    enum PutArgStkKind : __int8
+    {
+        PutArgStkKindInvalid,
+        PutArgStkKindRepInstr,
+        PutArgStkKindUnroll,
+    };
+
+    PutArgStkKind gtPutArgStkKind;
+
+    unsigned gtNumSlots;              // Number of slots for the argument to be passed on stack
+    bool     gtIsStruct;              // This stack arg is a struct.
+    unsigned gtNumberReferenceSlots;  // Number of reference slots.
+    BYTE*    gtGcPtrs;                // gcPointers
+#endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
 
 #if DEBUGGABLE_GENTREE
     GenTreePutArgStk() : GenTreeUnOp() {}
@@ -3324,6 +3453,30 @@ inline GenTreePtr GenTree::MoveNext()
     assert(IsList());
     return gtOp.gtOp2;
 }
+
+#ifdef DEBUG
+inline bool GenTree::IsListOfLclFlds()
+
+{
+    if (!IsList())
+    {
+        return false;
+    }
+
+    GenTree* gtListPtr = this;
+    while (gtListPtr->Current() != nullptr)
+    {
+        if (gtListPtr->Current()->OperGet() != GT_LCL_FLD)
+        {
+            return false;
+        }
+
+        gtListPtr = gtListPtr->MoveNext();
+    }
+
+    return true;
+}
+#endif // DEBUG
 
 inline GenTreePtr GenTree::Current()
 {
@@ -3361,6 +3514,8 @@ inline bool GenTree::RequiresNonNullOp2(genTreeOps oper)
     case GT_LSH:
     case GT_RSH:
     case GT_RSZ:
+    case GT_ROL:
+    case GT_ROR:
     case GT_INDEX:
     case GT_ASG:
     case GT_ASG_ADD:

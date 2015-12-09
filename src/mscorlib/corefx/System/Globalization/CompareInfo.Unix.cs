@@ -10,17 +10,16 @@ namespace System.Globalization
 {
     public partial class CompareInfo
     {
-        // ICU uses a char* (UTF-8) to represent a locale name.
-        private readonly byte[] m_sortNameAsUtf8;
+        private readonly Interop.GlobalizationInterop.SafeSortHandle m_sortHandle;
 
-        internal unsafe CompareInfo(CultureInfo culture)
+        internal CompareInfo(CultureInfo culture)
         {
             m_name = culture.m_name;
             m_sortName = culture.SortName;
-            m_sortNameAsUtf8 = System.Text.Encoding.UTF8.GetBytes(m_sortName);
+            m_sortHandle = Interop.GlobalizationInterop.GetSortHandle(System.Text.Encoding.UTF8.GetBytes(m_sortName));
         }
 
-        internal static int IndexOfOrdinal(string source, string value, int startIndex, int count, bool ignoreCase)
+        internal static unsafe int IndexOfOrdinal(string source, string value, int startIndex, int count, bool ignoreCase)
         {
             Contract.Assert(source != null);
             Contract.Assert(value != null);
@@ -30,33 +29,41 @@ namespace System.Globalization
                 return startIndex;
             }
 
-            // TODO (dotnet/corefx#3468): Move this into the shim so we don't have to do the ToUpper or call substring.
+            if (count < value.Length)
+            {
+                return -1;
+            }
 
             if (ignoreCase)
             {
-                source = source.ToUpper(CultureInfo.InvariantCulture);
-                value = value.ToUpper(CultureInfo.InvariantCulture);
+                fixed (char* pSource = source)
+                {
+                    int index = Interop.GlobalizationInterop.IndexOfOrdinalIgnoreCase(value, value.Length, pSource + startIndex, count, findLast: false);
+                    return index != -1 ?
+                        startIndex + index :
+                        -1;
+                }
             }
 
-            source = source.Substring(startIndex, count);
-
-            for (int i = 0; i + value.Length <= source.Length; i++)
+            int endIndex = startIndex + (count - value.Length);
+            for (int i = startIndex; i <= endIndex; i++)
             {
-                for (int j = 0; j < value.Length; j++) {
-                   if (source[i + j] != value[j]) {
-                       break;
-                   }
+                int valueIndex, sourceIndex;
 
-                   if (j == value.Length - 1) {
-                       return i + startIndex;
-                   }
+                for (valueIndex = 0, sourceIndex = i;
+                     valueIndex < value.Length && source[sourceIndex] == value[valueIndex];
+                     valueIndex++, sourceIndex++) ;
+
+                if (valueIndex == value.Length)
+                {
+                    return i;
                 }
             }
 
             return -1;
         }
 
-        internal static int LastIndexOfOrdinal(string source, string value, int startIndex, int count, bool ignoreCase)
+        internal static unsafe int LastIndexOfOrdinal(string source, string value, int startIndex, int count, bool ignoreCase)
         {
             Contract.Assert(source != null);
             Contract.Assert(value != null);
@@ -66,27 +73,41 @@ namespace System.Globalization
                 return startIndex;
             }
 
-            // TODO (dotnet/corefx#3468): Move this into the shim so we don't have to do the ToUpper or call substring.
+            if (count < value.Length)
+            {
+                return -1;
+            }
+
+            // startIndex is the index into source where we start search backwards from. 
+            // leftStartIndex is the index into source of the start of the string that is 
+            // count characters away from startIndex.
+            int leftStartIndex = startIndex - count + 1;
 
             if (ignoreCase)
             {
-                source = source.ToUpper(CultureInfo.InvariantCulture);
-                value = value.ToUpper(CultureInfo.InvariantCulture);
+                fixed (char* pSource = source)
+                {
+                    int lastIndex = Interop.GlobalizationInterop.IndexOfOrdinalIgnoreCase(value, value.Length, pSource + leftStartIndex, count, findLast: true);
+                    return lastIndex != -1 ?
+                        leftStartIndex + lastIndex :
+                        -1;
+                }
             }
 
-            source = source.Substring(startIndex - count + 1, count);
-
-            int last = -1;
-
-            int cur = 0;
-            while ((cur = IndexOfOrdinal(source, value, last + 1, source.Length - last - 1, false)) != -1)
+            for (int i = startIndex - value.Length + 1; i >= leftStartIndex; i--)
             {
-                last = cur;
+                int valueIndex, sourceIndex;
+
+                for (valueIndex = 0, sourceIndex = i;
+                     valueIndex < value.Length && source[sourceIndex] == value[valueIndex];
+                     valueIndex++, sourceIndex++) ;
+
+                if (valueIndex == value.Length) {
+                    return i;
+                }
             }
 
-            return last >= 0 ?
-                last + startIndex - count + 1 :
-                -1;
+            return -1;
         }
 
         private unsafe int GetHashCodeOfStringCore(string source, CompareOptions options)
@@ -114,7 +135,7 @@ namespace System.Globalization
             {
                 fixed (char* pString2 = string2)
                 {
-                    return Interop.GlobalizationInterop.CompareString(m_sortNameAsUtf8, pString1 + offset1, length1, pString2 + offset2, length2, options);
+                    return Interop.GlobalizationInterop.CompareString(m_sortHandle, pString1 + offset1, length1, pString2 + offset2, length2, options);
                 }
             }
         }
@@ -138,9 +159,9 @@ namespace System.Globalization
 
             fixed (char* pSource = source)
             {
-                int lastIndex = Interop.GlobalizationInterop.IndexOf(m_sortNameAsUtf8, target, pSource + startIndex, count, options);
+                int index = Interop.GlobalizationInterop.IndexOf(m_sortHandle, target, target.Length, pSource + startIndex, count, options);
 
-                return lastIndex != -1 ? lastIndex + startIndex : -1;
+                return index != -1 ? index + startIndex : -1;
             }
         }
 
@@ -166,7 +187,7 @@ namespace System.Globalization
 
             fixed (char* pSource = source)
             {
-                int lastIndex = Interop.GlobalizationInterop.LastIndexOf(m_sortNameAsUtf8, target, pSource + (startIndex - count + 1), count, options);
+                int lastIndex = Interop.GlobalizationInterop.LastIndexOf(m_sortHandle, target, target.Length, pSource + (startIndex - count + 1), count, options);
 
                 return lastIndex != -1 ? lastIndex + leftStartIndex : -1;
             }
@@ -178,7 +199,7 @@ namespace System.Globalization
             Contract.Assert(!string.IsNullOrEmpty(prefix));
             Contract.Assert((options & (CompareOptions.Ordinal | CompareOptions.OrdinalIgnoreCase)) == 0);
 
-            return Interop.GlobalizationInterop.StartsWith(m_sortNameAsUtf8, prefix, source, source.Length, options);
+            return Interop.GlobalizationInterop.StartsWith(m_sortHandle, prefix, prefix.Length, source, source.Length, options);
         }
 
         private bool EndsWith(string source, string suffix, CompareOptions options)
@@ -187,7 +208,7 @@ namespace System.Globalization
             Contract.Assert(!string.IsNullOrEmpty(suffix));
             Contract.Assert((options & (CompareOptions.Ordinal | CompareOptions.OrdinalIgnoreCase)) == 0);
 
-            return Interop.GlobalizationInterop.EndsWith(m_sortNameAsUtf8, suffix, source, source.Length, options);
+            return Interop.GlobalizationInterop.EndsWith(m_sortHandle, suffix, suffix.Length, source, source.Length, options);
         }
 
         // -----------------------------
@@ -199,13 +220,13 @@ namespace System.Globalization
             Contract.Assert(source != null);
             Contract.Assert((options & (CompareOptions.Ordinal | CompareOptions.OrdinalIgnoreCase)) == 0);
 
-            int sortKeyLength = Interop.GlobalizationInterop.GetSortKey(m_sortNameAsUtf8, source, source.Length, null, 0, options);
+            int sortKeyLength = Interop.GlobalizationInterop.GetSortKey(m_sortHandle, source, source.Length, null, 0, options);
 
             // As an optimization, for small sort keys we allocate the buffer on the stack.
             if (sortKeyLength <= 256)
             {
                 byte* pSortKey = stackalloc byte[sortKeyLength];
-                Interop.GlobalizationInterop.GetSortKey(m_sortNameAsUtf8, source, source.Length, pSortKey, sortKeyLength, options);
+                Interop.GlobalizationInterop.GetSortKey(m_sortHandle, source, source.Length, pSortKey, sortKeyLength, options);
                 return InternalHashSortKey(pSortKey, sortKeyLength, false, additionalEntropy);
             }
 
@@ -213,7 +234,7 @@ namespace System.Globalization
 
             fixed(byte* pSortKey = sortKey)
             {
-                Interop.GlobalizationInterop.GetSortKey(m_sortNameAsUtf8, source, source.Length, pSortKey, sortKeyLength, options);
+                Interop.GlobalizationInterop.GetSortKey(m_sortHandle, source, source.Length, pSortKey, sortKeyLength, options);
                 return InternalHashSortKey(pSortKey, sortKeyLength, false, additionalEntropy);
             }
         }

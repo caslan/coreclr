@@ -3267,6 +3267,10 @@ ClrDataAccess::QueryInterface(THIS_
     {
         ifaceRet = static_cast<ISOSDacInterface2*>(this);
     }
+    else if (IsEqualIID(interfaceId, __uuidof(ISOSDacInterface3)))
+    {
+        ifaceRet = static_cast<ISOSDacInterface3*>(this);
+    }
     else
     {
         *iface = NULL;
@@ -6849,8 +6853,19 @@ ClrDataAccess::GetMDImport(const PEFile* peFile, const ReflectionModule* reflect
     {
         // Get the metadata
         PTR_SBuffer metadataBuffer = reflectionModule->GetDynamicMetadataBuffer();
-        mdBaseTarget = dac_cast<PTR_CVOID>((metadataBuffer->DacGetRawBuffer()).StartAddress());
-        mdSize = metadataBuffer->GetSize();
+        if (metadataBuffer != PTR_NULL)
+        {
+            mdBaseTarget = dac_cast<PTR_CVOID>((metadataBuffer->DacGetRawBuffer()).StartAddress());
+            mdSize = metadataBuffer->GetSize();
+        }
+        else
+        {
+            if (throwEx)
+            {
+                DacError(E_FAIL);
+            }
+            return NULL;
+        }
     }
     else
     {
@@ -8145,7 +8160,7 @@ void DacHandleWalker::GetRefCountedHandleInfo(
         *pIsStrong = FALSE;
 }
 
-void CALLBACK DacHandleWalker::EnumCallbackSOS(PTR_UNCHECKED_OBJECTREF handle, LPARAM *pExtraInfo, LPARAM param1, LPARAM param2)
+void CALLBACK DacHandleWalker::EnumCallbackSOS(PTR_UNCHECKED_OBJECTREF handle, uintptr_t *pExtraInfo, uintptr_t param1, uintptr_t param2)
 {
     SUPPORTS_DAC;
     
@@ -8318,7 +8333,7 @@ CLRDATA_ADDRESS DacStackReferenceWalker::ReadPointer(TADDR addr)
 }
    
 
-void DacStackReferenceWalker::GCEnumCallbackSOS(LPVOID hCallback, OBJECTREF *pObject, DWORD flags, DacSlotLocation loc)
+void DacStackReferenceWalker::GCEnumCallbackSOS(LPVOID hCallback, OBJECTREF *pObject, uint32_t flags, DacSlotLocation loc)
 {
     GCCONTEXT *gcctx = (GCCONTEXT *)hCallback;
     DacScanContext *dsc = (DacScanContext*)gcctx->sc;
@@ -8377,7 +8392,7 @@ void DacStackReferenceWalker::GCEnumCallbackSOS(LPVOID hCallback, OBJECTREF *pOb
 }
 
 
-void DacStackReferenceWalker::GCReportCallbackSOS(PTR_PTR_Object ppObj, ScanContext *sc, DWORD flags)
+void DacStackReferenceWalker::GCReportCallbackSOS(PTR_PTR_Object ppObj, ScanContext *sc, uint32_t flags)
 {
     DacScanContext *dsc = (DacScanContext*)sc;
     CLRDATA_ADDRESS obj = dsc->pWalker->ReadPointer(ppObj.GetAddr());

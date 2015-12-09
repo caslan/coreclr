@@ -3,6 +3,20 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information. 
 //
 
+#if defined(_DEBUG)
+#ifndef _DEBUG_IMPL
+#define _DEBUG_IMPL 1
+#endif
+#define ASSERT(_expr) assert(_expr)
+#else
+#define ASSERT(_expr)
+#endif
+
+#ifndef _ASSERTE
+#define _ASSERTE(_expr) ASSERT(_expr)
+#endif
+
+#include "gcenv.structs.h"
 #include "gcenv.base.h"
 #include "gcenv.object.h"
 #include "gcenv.sync.h"
@@ -126,3 +140,6 @@ public:
 };
 
 extern EEConfig * g_pConfig;
+
+#include "etmdummy.h"
+#define ETW_EVENT_ENABLED(e,f) false

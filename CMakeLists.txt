@@ -242,30 +242,69 @@ if (CLR_CMAKE_PLATFORM_UNIX)
     else()
       clr_unknown_arch()
     endif()
-      
   endif(CLR_CMAKE_PLATFORM_LINUX)
+
+  if(CLR_CMAKE_PLATFORM_DARWIN)
+    message("Detected OSX x86_64")
+  endif(CLR_CMAKE_PLATFORM_DARWIN)
 
   if(CLR_CMAKE_PLATFORM_FREEBSD)
     message("Detected FreeBSD amd64")
   endif(CLR_CMAKE_PLATFORM_FREEBSD)
 
-endif(CLR_CMAKE_PLATFORM_UNIX)
+  # Disable frame pointer optimizations so profilers can get better call stacks
+  add_compile_options(-fno-omit-frame-pointer)
 
-if(CLR_CMAKE_PLATFORM_UNIX)
-    add_subdirectory(src/ToolBox/SOS/lldbplugin)
-    add_subdirectory(src/pal)
-    add_subdirectory(src/corefx)
-    add_subdirectory(src/coreclr/hosts/unixcorerun)
-    add_subdirectory(src/coreclr/hosts/unixcoreconsole)
-endif(CLR_CMAKE_PLATFORM_UNIX)
+  # The -fms-extensions enable the stuff like __if_exists, __declspec(uuid()), etc.
+  add_compile_options(-fms-extensions )
+  #-fms-compatibility      Enable full Microsoft Visual C++ compatibility
+  #-fms-extensions         Accept some non-standard constructs supported by the Microsoft compiler
 
+  # set the CLANG sanitizer flags for debug build
+  if(UPPERCASE_CMAKE_BUILD_TYPE STREQUAL DEBUG)
+    # obtain settings from running enablesanitizers.sh
+    string(FIND "$ENV{DEBUG_SANITIZERS}" "asan" __ASAN_POS)
+    string(FIND "$ENV{DEBUG_SANITIZERS}" "ubsan" __UBSAN_POS)
+    if ((${__ASAN_POS} GREATER -1) OR (${__UBSAN_POS} GREATER -1))
+      set(CLR_SANITIZE_CXX_FLAGS "${CLR_SANITIZE_CXX_FLAGS} -fsanitize=")
+      set(CLR_SANITIZE_LINK_FLAGS "${CLR_SANITIZE_LINK_FLAGS} -fsanitize=")
+      if (${__ASAN_POS} GREATER -1) 
+        set(CLR_SANITIZE_CXX_FLAGS "${CLR_SANITIZE_CXX_FLAGS}address,")
+        set(CLR_SANITIZE_LINK_FLAGS "${CLR_SANITIZE_LINK_FLAGS}address,")
+        message("Address Sanitizer (asan) enabled")
+      endif ()
+      if (${__UBSAN_POS} GREATER -1)
+        set(CLR_SANITIZE_CXX_FLAGS "${CLR_SANITIZE_CXX_FLAGS}undefined")
+        set(CLR_SANITIZE_LINK_FLAGS "${CLR_SANITIZE_LINK_FLAGS}undefined")
+        message("Undefined Behavior Sanitizer (ubsan) enabled")
+      endif ()
+
+      # -fdata-sections -ffunction-sections: each function has own section instead of one per .o file (needed for --gc-sections)
+      # -fPIC: enable Position Independent Code normally just for shared libraries but required when linking with address sanitizer
+      # -O1: optimization level used instead of -O0 to avoid compile error "invalid operand for inline asm constraint"
+      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${CLR_SANITIZE_CXX_FLAGS} -fdata-sections -ffunction-sections -fPIC -O1")
+
+      set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} ${CLR_SANITIZE_LINK_FLAGS}")
+
+      # -Wl and --gc-sections: drop unused sections\functions (similar to Windows /Gy function-level-linking)
+      set(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} ${CLR_SANITIZE_LINK_FLAGS} -Wl,--gc-sections")
+    endif ()
+  endif(UPPERCASE_CMAKE_BUILD_TYPE STREQUAL DEBUG)
+
+  add_subdirectory(src/ToolBox/SOS/lldbplugin)
+  add_subdirectory(src/pal)
+  add_subdirectory(src/corefx)
+  add_subdirectory(src/coreclr/hosts/unixcoreruncommon)
+  add_subdirectory(src/coreclr/hosts/unixcorerun)
+  add_subdirectory(src/coreclr/hosts/unixcoreconsole)
+  add_subdirectory(src/ildasm/unixcoreclrloader)
+endif(CLR_CMAKE_PLATFORM_UNIX)
 
 if(CLR_CMAKE_PLATFORM_DARWIN)
-    add_subdirectory(src/coreclr/hosts/osxbundlerun)
+  add_subdirectory(src/coreclr/hosts/osxbundlerun)
 endif(CLR_CMAKE_PLATFORM_DARWIN)
 
 # Add this subdir. We install the headers for the jit.
-
 add_subdirectory(src/pal/prebuilt/inc)
 
 # Set to 1 if you want to clear the CMAKE initial compiler flags and set all the flags explicitly
@@ -343,9 +382,6 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /MANIFEST:NO") #Do n
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /SUBSYSTEM:WINDOWS,6.00") #windows subsystem
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /LARGEADDRESSAWARE") # can handle addresses larger than 2 gigabytes
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /RELEASE") #sets the checksum in the header
-if (IS_64BIT_BUILD EQUAL 0)
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /SAFESEH:NO") #Image does not have Safe Exception Handlers..valid only for x86
-endif (IS_64BIT_BUILD EQUAL 0)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /NXCOMPAT") #Compatible with Data Execution Prevention
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /DYNAMICBASE") #Use address space layout randomization
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /DEBUGTYPE:cv,fixup") #debugging format
@@ -373,6 +409,11 @@ set(CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBIN
 endif (WIN32)
 
 endif (OVERRIDE_CMAKE_CXX_FLAGS)
+
+if(CLR_CMAKE_PLATFORM_UNIX_TARGET_AMD64)
+add_definitions(-DFEATURE_UNIX_AMD64_STRUCT_PASSING_ITF)
+add_definitions(-DFEATURE_UNIX_AMD64_STRUCT_PASSING)
+endif (CLR_CMAKE_PLATFORM_UNIX_TARGET_AMD64)
 
 OPTION(CMAKE_ENABLE_CODE_COVERAGE "Enable code coverage" OFF)
 
@@ -424,14 +465,6 @@ add_compile_options(-Wno-invalid-offsetof)
 # may not generate the same object layout as MSVC.
 add_compile_options(-Wno-incompatible-ms-struct)
 
-# The -fms-extensions enable the stuff like __if_exists, __declspec(uuid()), etc.
-add_compile_options(-fms-extensions )
-#-fms-compatibility      Enable full Microsoft Visual C++ compatibility
-#-fms-extensions         Accept some non-standard constructs supported by the Microsoft compiler
-
-# Disable frame pointer optimizations so profilers can get better call stacks
-add_compile_options(-fno-omit-frame-pointer)
-
 endif(CLR_CMAKE_PLATFORM_UNIX)
 
 add_subdirectory(src/debug/debug-pal)
@@ -455,19 +488,16 @@ if (WIN32)
 endif(WIN32)
 # Definition directives
 
-
+  if(IS_64BIT_BUILD)
+    add_definitions(-DBIT64=1)
+  endif(IS_64BIT_BUILD)
 
 if (CLR_CMAKE_PLATFORM_UNIX)
   add_definitions(-DFEATURE_PAL_SXS)
   add_definitions(-DFEATURE_COREFX_GLOBALIZATION)
   add_definitions(-DFEATURE_PAL)
 
-  if(IS_64BIT_BUILD)
-    add_definitions(-DBIT64=1)
-  endif(IS_64BIT_BUILD)
-  
   if(CLR_CMAKE_PLATFORM_DARWIN)
-    message("Detected OSX x86_64")
     add_definitions(-D_XOPEN_SOURCE)
   endif(CLR_CMAKE_PLATFORM_DARWIN)
 
@@ -559,7 +589,9 @@ if(WIN32)
 endif(WIN32)
 add_definitions(-DFEATURE_EXCEPTIONDISPATCHINFO)
 add_definitions(-DFEATURE_FRAMEWORK_INTERNAL)
-add_definitions(-DFEATURE_HIJACK)
+if(NOT CLR_CMAKE_PLATFORM_UNIX_TARGET_ARM)
+    add_definitions(-DFEATURE_HIJACK)
+endif(NOT CLR_CMAKE_PLATFORM_UNIX_TARGET_ARM)
 add_definitions(-DFEATURE_HOST_ASSEMBLY_RESOLVER)
 add_definitions(-DFEATURE_HOSTED_BINDER)
 if(WIN32)

@@ -9,7 +9,7 @@ if defined VS120COMNTOOLS set __VSVersion=vs2013
 if defined VS140COMNTOOLS set __VSVersion=vs2015
 
 :: Default __Exclude to issues.targets
-set __Exclude=%~dp0\issues.targets
+set __Exclude0=%~dp0\issues.targets
 
 :Arg_Loop
 if "%1" == "" goto ArgsDone
@@ -20,6 +20,7 @@ if /i "%1" == "debug"    (set __BuildType=debug&shift&goto Arg_Loop)
 if /i "%1" == "release"   (set __BuildType=release&shift&goto Arg_Loop)
 if /i "%1" == "SkipWrapperGeneration" (set __SkipWrapperGeneration=true&shift&goto Arg_Loop)
 if /i "%1" == "Exclude" (set __Exclude=%2&shift&shift&goto Arg_Loop)
+if /i "%1" == "Exclude0" (set __Exclude0=%2&shift&shift&goto Arg_Loop)
 if /i "%1" == "TestEnv" (set __TestEnv=%2&shift&shift&goto Arg_Loop)
 
 if /i "%1" == "vs2013" (set __VSVersion=%1&shift&goto Arg_Loop)
@@ -138,12 +139,12 @@ if ERRORLEVEL 1 (
 exit /b 0
 
 :runtests
-%_buildprefix% %_msbuildexe% "%__ProjectFilesDir%runtest.proj" /p:NoBuild=true /nologo /maxcpucount /verbosity:minimal /nodeReuse:false /fileloggerparameters:Verbosity=diagnostic;LogFile="%__TestRunBuildLog%";Append %1 %_buildpostfix% /clp:showcommandline
+%_buildprefix% %_msbuildexe% "%__ProjectFilesDir%runtest.proj" /p:NoBuild=true /nologo /maxcpucount /verbosity:minimal /nodeReuse:false /fileloggerparameters:LogFile="%__TestRunBuildLog%";Append %1 %_buildpostfix% /clp:showcommandline
 exit /b %ERRORLEVEL%
 
 :PerformXunitWrapperBuild
 
-%_buildprefix% %_msbuildexe% "%__ProjectFilesDir%runtest.proj" /p:NoRun=true /nologo /maxcpucount /verbosity:minimal /nodeReuse:false /fileloggerparameters:Verbosity=diagnostic;LogFile="%__XunitWrapperBuildLog%";Append %1  %_buildappend%%_buildpostfix%
+%_buildprefix% %_msbuildexe% "%__ProjectFilesDir%runtest.proj" /p:NoRun=true /nologo /maxcpucount /verbosity:minimal /nodeReuse:false /fileloggerparameters:LogFile="%__XunitWrapperBuildLog%";Append %1  %_buildappend%%_buildpostfix%
 exit /b %ERRORLEVEL%
 
 :Usage
@@ -154,7 +155,9 @@ echo.
 echo BuildArch is x64, x86
 echo BuildType can be: Debug, Release
 echo SkipWrapperGeneration- Optional parameter - this will run the same set of tests as the last time it was run
-echo Exclude- Optional parameter - this will exclude individual tests from running, specified by ExcludeList ItemGroup in an .targets file.
+echo Exclude0- Optional parameter - specify location of default exclusion file (defaults to issues.targets if not specified)
+echo                                Set to "" to disable default exclusion file.
+echo Exclude-  Optional parameter - this will exclude individual tests from running, specified by ExcludeList ItemGroup in an .targets file.
 echo TestEnv- Optional parameter - this will run a custom script to set custom test environment settings.
 echo VSVersion- optional argument to use VS2013 or VS2015  (default VS2015)
 echo CORE_ROOT The path to the runtime  

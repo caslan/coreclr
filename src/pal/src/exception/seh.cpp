@@ -58,16 +58,6 @@ const UINT RESERVED_SEH_BIT = 0x800000;
 
 PHARDWARE_EXCEPTION_HANDLER g_hardwareExceptionHandler = NULL;
 
-/* Internal function declarations *********************************************/
-
-BOOL SEHInitializeConsole();
-
-#if !HAVE_MACH_EXCEPTIONS
-PAL_ERROR
-StartExternalSignalHandlerThread(
-    CPalThread *pthr);
-#endif // !HAVE_MACH_EXCEPTIONS
-
 /* Internal function definitions **********************************************/
 
 /*++
@@ -89,30 +79,12 @@ SEHInitialize (CPalThread *pthrCurrent, DWORD flags)
 {
     BOOL bRet = FALSE;
 
-    if (!SEHInitializeConsole())
-    {
-        ERROR("SEHInitializeConsole failed!\n");
-        SEHCleanup();
-        goto SEHInitializeExit;
-    }
-
 #if !HAVE_MACH_EXCEPTIONS
     if (!SEHInitializeSignals())
     {
         ERROR("SEHInitializeSignals failed!\n");
         SEHCleanup();
         goto SEHInitializeExit;
-    }
-
-    if (flags & PAL_INITIALIZE_SIGNAL_THREAD)
-    {
-        PAL_ERROR palError = StartExternalSignalHandlerThread(pthrCurrent);
-        if (NO_ERROR != palError)
-        {
-            ERROR("StartExternalSignalHandlerThread returned %d\n", palError);
-            SEHCleanup();
-            goto SEHInitializeExit;
-        }
     }
 #endif
     bRet = TRUE;
@@ -161,9 +133,7 @@ VOID
 PALAPI 
 PAL_SetHardwareExceptionHandler(
     IN PHARDWARE_EXCEPTION_HANDLER exceptionHandler)
-
 {
-    //TRACE("Hardware exception installed: %p\n", exceptionHandler);
     g_hardwareExceptionHandler = exceptionHandler;
 }
 
@@ -182,16 +152,19 @@ Return value:
 VOID
 SEHProcessException(PEXCEPTION_POINTERS pointers)
 {
-    PAL_SEHException exception(pointers->ExceptionRecord, pointers->ContextRecord);
-
-    if (g_hardwareExceptionHandler != NULL)
+    if (!IsInDebugBreak(pointers->ExceptionRecord->ExceptionAddress))
     {
-        g_hardwareExceptionHandler(&exception);
-    }
+        PAL_SEHException exception(pointers->ExceptionRecord, pointers->ContextRecord);
 
-    if (CatchHardwareExceptionHolder::IsEnabled())
-    {
-        throw exception;
+        if (g_hardwareExceptionHandler != NULL)
+        {
+            g_hardwareExceptionHandler(&exception);
+        }
+
+        if (CatchHardwareExceptionHolder::IsEnabled())
+        {
+            throw exception;
+        }
     }
 
     TRACE("Unhandled hardware exception %08x at %p\n", 
@@ -258,26 +231,22 @@ PAL_ERROR SEHDisable(CPalThread *pthrCurrent)
 
 --*/
 
-#ifdef __llvm__
-__thread 
-#else // __llvm__
-__declspec(thread)
-#endif // !__llvm__
-int t_holderCount = 0;
-
 CatchHardwareExceptionHolder::CatchHardwareExceptionHolder()
 {
-    ++t_holderCount;
+    CPalThread *pThread = InternalGetCurrentThread();
+    ++pThread->m_hardwareExceptionHolderCount;
 }
 
 CatchHardwareExceptionHolder::~CatchHardwareExceptionHolder()
 {
-    --t_holderCount;
+    CPalThread *pThread = InternalGetCurrentThread();
+    --pThread->m_hardwareExceptionHolderCount;
 }
 
 bool CatchHardwareExceptionHolder::IsEnabled()
 {
-    return t_holderCount > 0;
+    CPalThread *pThread = InternalGetCurrentThread();
+    return pThread->IsHardwareExceptionsEnabled();
 }
 
 /*++
@@ -321,9 +290,9 @@ NativeExceptionHolderBase::Push()
 }
 
 NativeExceptionHolderBase *
-NativeExceptionHolderBase::FindNextHolder(void *stackLowAddress, void *stackHighAddress)
+NativeExceptionHolderBase::FindNextHolder(NativeExceptionHolderBase *currentHolder, void *stackLowAddress, void *stackHighAddress)
 {
-    NativeExceptionHolderBase *holder = this;
+    NativeExceptionHolderBase *holder = (currentHolder == nullptr) ? t_nativeExceptionHolderHead : currentHolder->m_next;
 
     while (holder != nullptr)
     {
@@ -336,17 +305,6 @@ NativeExceptionHolderBase::FindNextHolder(void *stackLowAddress, void *stackHigh
     }
 
     return nullptr;
-}
-
-NativeExceptionHolderBase *
-NativeExceptionHolderBase::FindHolder(void *stackLowAddress, void *stackHighAddress)
-{
-    NativeExceptionHolderBase *head = t_nativeExceptionHolderHead;
-    if (head == nullptr)
-    {
-        return nullptr;
-    }
-    return head->FindNextHolder(stackLowAddress, stackHighAddress);
 }
 
 #include "seh-unwind.cpp"

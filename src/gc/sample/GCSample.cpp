@@ -26,11 +26,11 @@
 //      static void SuspendEE(SUSPEND_REASON reason);
 //      static void RestartEE(bool bFinishedGC); //resume threads.
 //
-// * Enumeration of threads that are running managed code:
-//      static Thread * GetThreadList(Thread * pThread);
+// * Enumeration of thread-local allocators:
+//      static void GcEnumAllocContexts (enum_alloc_context_func* fn, void* param);
 //
-// * Scanning of stack roots of given thread:
-//      static void ScanStackRoots(Thread * pThread, promote_func* fn, ScanContext* sc);
+// * Scanning of stack roots:
+//      static void GcScanRoots(promote_func* fn,  int condemned, int max_gen, ScanContext* sc);
 //
 //  The sample has trivial implementation for these methods. It is single threaded, and there are no stack roots to 
 //  be reported. There are number of other callbacks that GC calls to optionally allow the execution engine to do its 
@@ -60,8 +60,8 @@ Object * AllocateObject(MethodTable * pMT)
 
     size_t size = pMT->GetBaseSize();
 
-    BYTE* result = acontext->alloc_ptr;
-    BYTE* advance = result + size;
+    uint8_t* result = acontext->alloc_ptr;
+    uint8_t* advance = result + size;
     if (advance <= acontext->alloc_limit)
     {
         acontext->alloc_ptr = advance;
@@ -74,12 +74,12 @@ Object * AllocateObject(MethodTable * pMT)
             return NULL;
     }
 
-    pObject->SetMethodTable(pMT);
+    pObject->RawSetMethodTable(pMT);
 
     return pObject;
 }
 
-#if defined(_WIN64)
+#if defined(BIT64)
 // Card byte shift is different on 64bit.
 #define card_byte_shift     11
 #else
@@ -92,14 +92,14 @@ inline void ErectWriteBarrier(Object ** dst, Object * ref)
 {
     // if the dst is outside of the heap (unboxed value classes) then we
     //      simply exit
-    if (((BYTE*)dst < g_lowest_address) || ((BYTE*)dst >= g_highest_address))
+    if (((uint8_t*)dst < g_lowest_address) || ((uint8_t*)dst >= g_highest_address))
         return;
         
-    if((BYTE*)ref >= g_ephemeral_low && (BYTE*)ref < g_ephemeral_high)
+    if((uint8_t*)ref >= g_ephemeral_low && (uint8_t*)ref < g_ephemeral_high)
     {
         // volatile is used here to prevent fetch of g_card_table from being reordered 
         // with g_lowest/highest_address check above. See comment in code:gc_heap::grow_brick_card_tables.
-        BYTE* pCardByte = (BYTE *)*(volatile BYTE **)(&g_card_table) + card_byte((BYTE *)dst);
+        uint8_t* pCardByte = (uint8_t *)*(volatile uint8_t **)(&g_card_table) + card_byte((uint8_t *)dst);
         if(*pCardByte != 0xFF)
             *pCardByte = 0xFF;
     }

@@ -2083,7 +2083,7 @@ struct StackTraceElement
 #if defined(FEATURE_EXCEPTIONDISPATCHINFO)
     // TRUE if this element represents the last frame of the foreign
     // exception stack trace.
-    BOOL fIsLastFrameFromForeignStackTrace;
+    BOOL            fIsLastFrameFromForeignStackTrace;
 #endif // defined(FEATURE_EXCEPTIONDISPATCHINFO)
 
 };
@@ -2294,6 +2294,7 @@ size_t FormatGeneratedException (DWORD_PTR dataPtr,
         // or did not update so (when ste is an explicit frames), do not update wszBuffer
         if (Status == S_OK)
         {
+#ifndef FEATURE_PAL
             char filename[MAX_LONGPATH+1] = "";
             ULONG linenum = 0;
             if (bLineNumbers
@@ -2307,12 +2308,15 @@ size_t FormatGeneratedException (DWORD_PTR dataPtr,
 
             if (!bLineNumbers)
             {
+#endif // FEATURE_PAL
                 swprintf_s(wszLineBuffer, _countof(wszLineBuffer), W("    %s\n"), so.String());
+#ifndef FEATURE_PAL
             }
             else
             {
                 swprintf_s(wszLineBuffer, _countof(wszLineBuffer), W("    %s [%S @ %d]\n"), so.String(), filename, linenum);
             }
+#endif // FEATURE_PAL
 
             Length += _wcslen(wszLineBuffer);
 
@@ -6102,12 +6106,14 @@ void IssueDebuggerBPCommand ( CLRDATA_ADDRESS addr )
     if (!bUnique)
     {
         bUnique = TRUE;
-        for ( int i = 0; i < curLimit; ++i )
+        for (int i = 0; i < curLimit; ++i)
+        {
             if (alreadyPlacedBPs[i] == addr)
             {
                 bUnique = FALSE;
                 break;
             }
+        }
     }
     if (bUnique)
     {
@@ -6115,7 +6121,7 @@ void IssueDebuggerBPCommand ( CLRDATA_ADDRESS addr )
         static WCHAR wszNameBuffer[1024]; // should be large enough
 
         // get the MethodDesc name
-               CLRDATA_ADDRESS pMD;
+        CLRDATA_ADDRESS pMD;
         if (g_sos->GetMethodDescPtrFromIP(addr, &pMD) != S_OK
             || g_sos->GetMethodDescName(pMD, 1024, wszNameBuffer, NULL) != S_OK)
         {
@@ -6130,8 +6136,10 @@ void IssueDebuggerBPCommand ( CLRDATA_ADDRESS addr )
         ExtOut("Setting breakpoint: %s [%S]\n", buffer, wszNameBuffer);
         g_ExtControl->Execute(DEBUG_EXECUTE_NOT_LOGGED, buffer, 0);
 
-        if ( curLimit < MaxBPsCached )
+        if (curLimit < MaxBPsCached)
+        {
             alreadyPlacedBPs[curLimit++] = addr;
+        }
     }
 }
 
@@ -6299,6 +6307,21 @@ public:
     }
 #endif
 
+    void CleanupNotifications()
+    {
+#ifdef FEATURE_PAL
+        if (m_breakpoints == NULL)
+        {
+            ULONG32 flags = 0;
+            g_clrData->GetOtherNotificationFlags(&flags);
+            flags &= ~(CLRDATA_NOTIFY_ON_MODULE_LOAD | CLRDATA_NOTIFY_ON_MODULE_UNLOAD);
+            g_clrData->SetOtherNotificationFlags(flags);
+
+            g_ExtClient->ClearExceptionCallback();
+        }
+#endif
+    }
+
     void ClearBreakpoint(size_t breakPointToClear)
     {
         PendingBreakpoint *pCur = m_breakpoints;
@@ -6320,6 +6343,7 @@ public:
         {
             ExtOut("Invalid pending breakpoint index.\n");
         }
+        CleanupNotifications();
     }
 
     void ClearAllBreakpoints()
@@ -6332,11 +6356,14 @@ public:
             iBreakpointIndex++;
             pCur = pNext;
         }
+        CleanupNotifications();
+
         ExtOut("All pending breakpoints cleared.\n");
     }
 
     HRESULT LoadSymbolsForModule(TADDR mod, SymbolReader* pSymbolReader)
     {
+#ifndef FEATURE_PAL
         HRESULT Status = S_OK;
         ToRelease<IXCLRDataModule> module;
         IfFailRet(g_sos->GetModule(mod, &module));
@@ -6374,7 +6401,7 @@ public:
             ExtOut("SOS warning: No symbols for module %S, source line breakpoints in this module will not bind hr=0x%x\n", wszNameBuffer, Status);
             return S_FALSE; // not finding symbols is a typical case
         }
-
+#endif // FEATURE_PAL
         return S_OK;
     }
 
@@ -6892,8 +6919,13 @@ HRESULT HandleCLRNotificationEvent()
 
     if (!CheckCLRNotificationEvent(&dle))
     {
+#ifndef FEATURE_PAL
         ExtOut("Expecting first chance CLRN exception\n");
         return E_FAIL;
+#else
+        g_ExtControl->Execute(DEBUG_EXECUTE_NOT_LOGGED, "process continue", 0);
+        return S_OK;
+#endif
     }
 
     // Notification only needs to live for the lifetime of the call below, so it's a non-static
@@ -6901,7 +6933,7 @@ HRESULT HandleCLRNotificationEvent()
     HRESULT Status = g_clrData->TranslateExceptionRecordToNotification(&dle.ExceptionRecord, &Notification);
     if (Status != S_OK)
     {
-        ExtOut("Error processing exception notification\n");
+        ExtErr("Error processing exception notification\n");
         return Status;
     }
     else
@@ -6925,6 +6957,14 @@ HRESULT HandleCLRNotificationEvent()
     return S_OK;
 }
 
+#ifdef FEATURE_PAL
+HRESULT HandleExceptionNotification(PDEBUG_CLIENT Client)
+{
+    INIT_API();
+    return HandleCLRNotificationEvent();
+}
+#endif
+
 DECLARE_API(HandleCLRN)
 {
     INIT_API();    
@@ -6935,7 +6975,7 @@ DECLARE_API(HandleCLRN)
 
 DECLARE_API(bpmd)
 {
-    INIT_API_NOEE();    
+    INIT_API();    
     MINIDUMP_NOT_SUPPORTED();    
     int i;
     char buffer[1024];    
@@ -6952,7 +6992,7 @@ DECLARE_API(bpmd)
     //
 
     StringHolder DllName,TypeName;
-    int lineNumber;
+    int lineNumber = 0;
     size_t Offset = 0;
 
     DWORD_PTR pMD = NULL;
@@ -7024,6 +7064,7 @@ DECLARE_API(bpmd)
         CHAR* pColon = strchr(DllName.data, ':');
         if(NULL != pColon)
         {
+#ifndef FEATURE_PAL
             fIsFilename = true;
             *pColon = '\0';
             pColon++;
@@ -7038,6 +7079,10 @@ DECLARE_API(bpmd)
                 fBadParam = true;
             }
             if(nArg != 1) fBadParam = 1;
+#else
+        ExtOut("File name:Line number not supported\n");
+        fBadParam = true;
+#endif // FEATURE_PAL
         }
     }
 
@@ -7078,7 +7123,10 @@ DECLARE_API(bpmd)
     LPWSTR FunctionName = (LPWSTR)alloca(mdNameLen * sizeof(WCHAR));
     LPWSTR Filename = (LPWSTR)alloca(MAX_LONGPATH * sizeof(WCHAR));
 
-    BOOL bNeedNotificationExceptions=FALSE;
+    BOOL bNeedNotificationExceptions = FALSE;
+#ifdef FEATURE_PAL
+    BOOL bNeedModuleNotificationExceptions = FALSE;
+#endif
 
     if (pMD == NULL)
     {
@@ -7109,7 +7157,7 @@ DECLARE_API(bpmd)
             else
             {
                 // get the module list
-                moduleList =ModuleFromName(fIsFilename ? NULL : DllName.data, &numModule);
+                moduleList = ModuleFromName(fIsFilename ? NULL : DllName.data, &numModule);
 
                 // Its OK if moduleList is NULL
                 // There is a very normal case when checking for modules after clr is loaded
@@ -7131,7 +7179,9 @@ DECLARE_API(bpmd)
         {
             ToRelease<IXCLRDataModule> ModDef;
             if (g_sos->GetModule(moduleList[iModule], &ModDef) != S_OK)
+            {
                 continue;
+            }
 
             HRESULT symbolsLoaded = S_FALSE;
             if(!fIsFilename)
@@ -7194,15 +7244,17 @@ DECLARE_API(bpmd)
                 }
             }
 
-            if(g_bpoints.Update(moduleList[iModule], FALSE))
+            if (g_bpoints.Update(moduleList[iModule], FALSE))
+            {
                 bNeedNotificationExceptions = TRUE;
+            }
         }
 
         if (!fNoFutureModule)
         {
             // add a pending breakpoint that will find future loaded modules, and
             // wait for the module load notification.
-            if(!fIsFilename)
+            if (!fIsFilename)
             {
                 g_bpoints.Add(ModuleName, FunctionName, NULL, (DWORD)Offset);
             }
@@ -7211,6 +7263,9 @@ DECLARE_API(bpmd)
                 g_bpoints.Add(Filename, lineNumber, NULL);
             }
             bNeedNotificationExceptions = TRUE;
+#ifdef FEATURE_PAL
+            bNeedModuleNotificationExceptions = TRUE;
+#endif
         }
     }
     else /* We were given a MethodDesc already */
@@ -7294,13 +7349,14 @@ DECLARE_API(bpmd)
         sprintf_s(buffer, _countof(buffer), "sxe -c \"!HandleCLRN\" clrn");
         Status = g_ExtControl->Execute(DEBUG_EXECUTE_NOT_LOGGED, buffer, 0);        
 #else
-        sprintf_s(buffer, _countof(buffer), "breakpoint set -E c++ -h false -w true");
-        Status = g_ExtControl->Execute(DEBUG_EXECUTE_NOT_LOGGED, buffer, 0);        
-        if (Status == S_OK)
+        if (bNeedModuleNotificationExceptions)
         {
-            sprintf_s(buffer, _countof(buffer), "breakpoint command add -o \"sos HandleCLRN\"");
-            Status = g_ExtControl->Execute(DEBUG_EXECUTE_NOT_LOGGED, buffer, 0);
+            ULONG32 flags = 0;
+            g_clrData->GetOtherNotificationFlags(&flags);
+            flags |= (CLRDATA_NOTIFY_ON_MODULE_LOAD | CLRDATA_NOTIFY_ON_MODULE_UNLOAD);
+            g_clrData->SetOtherNotificationFlags(flags);
         }
+        Status = g_ExtClient->SetExceptionCallback(HandleExceptionNotification);
 #endif // FEATURE_PAL
     }
 
@@ -8431,7 +8487,6 @@ DECLARE_API (DumpGCLog)
     INIT_API_NODAC();
     MINIDUMP_NOT_SUPPORTED();    
     
-
     if (GetEEFlavor() == UNKNOWNEE) 
     {
         ExtOut("CLR not loaded\n");
@@ -8446,7 +8501,6 @@ DECLARE_API (DumpGCLog)
     if (*args != 0)
         fileName = args;
     
-    // Try to find stress log symbols
     DWORD_PTR dwAddr = GetValueFromExpression(MAIN_CLR_MODULE_NAME_A "!SVR::gc_log_buffer");
     moveN (dwAddr, dwAddr);
 
@@ -8460,7 +8514,7 @@ DECLARE_API (DumpGCLog)
             return E_FAIL;
         }
     }
-
+    
     ExtOut("Dumping GC log at %08x\n", dwAddr);
 
     g_bDacBroken = FALSE;
@@ -8511,6 +8565,7 @@ DECLARE_API (DumpGCLog)
 
     DWORD dwWritten = 0;
     WriteFile (hGCLog, bGCLog, iRealLogSize + 1, &dwWritten, NULL);
+
     Status = S_OK;
 
 exit:
@@ -8529,8 +8584,299 @@ exit:
 
     return Status;
 }
-
 #endif //TRACE_GC
+
+#ifndef FEATURE_PAL
+DECLARE_API (DumpGCConfigLog)
+{
+    INIT_API();
+#ifdef GC_CONFIG_DRIVEN    
+    MINIDUMP_NOT_SUPPORTED();    
+
+    if (GetEEFlavor() == UNKNOWNEE) 
+    {
+        ExtOut("CLR not loaded\n");
+        return Status;
+    }
+
+    const char* fileName = "GCConfigLog.txt";
+
+    while (isspace (*args))
+        args ++;
+
+    if (*args != 0)
+        fileName = args;
+    
+    if (!InitializeHeapData ())
+    {
+        ExtOut("GC Heap not initialized yet.\n");
+        return S_OK;
+    }
+
+    BOOL fIsServerGC = IsServerBuild();
+
+    DWORD_PTR dwAddr = 0; 
+    DWORD_PTR dwAddrOffset = 0;
+    
+    if (fIsServerGC) 
+    {
+        dwAddr = GetValueFromExpression(MAIN_CLR_MODULE_NAME_A "!SVR::gc_config_log_buffer");
+        dwAddrOffset = GetValueFromExpression(MAIN_CLR_MODULE_NAME_A "!SVR::gc_config_log_buffer_offset");
+    }
+    else
+    {
+        dwAddr = GetValueFromExpression(MAIN_CLR_MODULE_NAME_A "!WKS::gc_config_log_buffer");
+        dwAddrOffset = GetValueFromExpression(MAIN_CLR_MODULE_NAME_A "!WKS::gc_config_log_buffer_offset");
+    }
+
+    moveN (dwAddr, dwAddr);
+    moveN (dwAddrOffset, dwAddrOffset);
+
+    if (dwAddr == 0)
+    {
+        ExtOut("Can't get either WKS or SVR GC's config log buffer");
+        return E_FAIL;
+    }
+    
+    ExtOut("Dumping GC log at %08x\n", dwAddr);
+
+    g_bDacBroken = FALSE;
+    
+    ExtOut("Attempting to dump GC log to file '%s'\n", fileName);
+    
+    Status = E_FAIL;
+    
+    HANDLE hGCLog = CreateFileA(
+        fileName,
+        GENERIC_WRITE,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+
+    if (hGCLog == INVALID_HANDLE_VALUE)
+    {
+        ExtOut("failed to create file: %d\n", GetLastError());
+        goto exit;
+    }
+
+    {
+        int iLogSize = (int)dwAddrOffset;
+
+        ArrayHolder<BYTE> bGCLog = new NOTHROW BYTE[iLogSize];
+        if (bGCLog == NULL)
+        {
+            ReportOOM();
+            goto exit;
+        }
+
+        memset (bGCLog, 0, iLogSize);
+        if (!SafeReadMemory(dwAddr, bGCLog, iLogSize, NULL))
+        {
+            ExtOut("failed to read memory from %08x\n", dwAddr);
+        }
+
+        SetFilePointer (hGCLog, 0, 0, FILE_END);
+        DWORD dwWritten;
+        WriteFile (hGCLog, bGCLog, iLogSize, &dwWritten, NULL);
+    }
+
+    Status = S_OK;
+
+exit:
+
+    if (hGCLog != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle (hGCLog);
+    }
+
+    if (Status == S_OK)
+        ExtOut("SUCCESS: Stress log dumped\n");
+    else if (Status == S_FALSE)
+        ExtOut("No Stress log in the image, no file written\n");
+    else
+        ExtOut("FAILURE: Stress log not dumped\n");
+
+    return Status;
+#else
+    ExtOut("Not implemented\n");
+    return S_OK;
+#endif //GC_CONFIG_DRIVEN
+}
+#endif // FEATURE_PAL
+
+#ifdef GC_CONFIG_DRIVEN
+static const char * const str_interesting_data_points[] =
+{
+    "pre short", // 0
+    "post short", // 1
+    "merged pins", // 2
+    "converted pins", // 3
+    "pre pin", // 4
+    "post pin", // 5
+    "pre and post pin", // 6
+    "pre short padded", // 7
+    "post short padded", // 7
+};
+
+static const char * const str_heap_compact_reasons[] = 
+{
+    "low on ephemeral space",
+    "high fragmetation",
+    "couldn't allocate gaps",
+    "user specfied compact LOH",
+    "last GC before OOM",
+    "induced compacting GC",
+    "fragmented gen0 (ephemeral GC)", 
+    "high memory load (ephemeral GC)",
+    "high memory load and frag",
+    "very high memory load and frag",
+    "no gc mode"
+};
+
+static BOOL gc_heap_compact_reason_mandatory_p[] =
+{
+    TRUE, //compact_low_ephemeral = 0,
+    FALSE, //compact_high_frag = 1,
+    TRUE, //compact_no_gaps = 2,
+    TRUE, //compact_loh_forced = 3,
+    TRUE, //compact_last_gc = 4
+    TRUE, //compact_induced_compacting = 5,
+    FALSE, //compact_fragmented_gen0 = 6, 
+    FALSE, //compact_high_mem_load = 7, 
+    TRUE, //compact_high_mem_frag = 8, 
+    TRUE, //compact_vhigh_mem_frag = 9,
+    TRUE //compact_no_gc_mode = 10
+};
+
+static const char * const str_heap_expand_mechanisms[] = 
+{
+    "reused seg with normal fit",
+    "reused seg with best fit",
+    "expand promoting eph",
+    "expand with a new seg",
+    "no memory for a new seg",
+    "expand in next full GC"
+};
+
+static const char * const str_bit_mechanisms[] = 
+{
+    "using mark list",
+    "demotion"
+};
+
+static const char * const str_gc_global_mechanisms[] =
+{
+    "concurrent GCs", 
+    "compacting GCs",
+    "promoting GCs",
+    "GCs that did demotion",
+    "card bundles",
+    "elevation logic"
+};
+
+void PrintInterestingGCInfo(DacpGCInterestingInfoData* dataPerHeap)
+{
+    ExtOut("Interesting data points\n");
+    size_t* data = dataPerHeap->interestingDataPoints;
+    for (int i = 0; i < NUM_GC_DATA_POINTS; i++)
+    {
+        ExtOut("%20s: %d\n", str_interesting_data_points[i], data[i]);
+    }
+
+    ExtOut("\nCompacting reasons\n");
+    data = dataPerHeap->compactReasons;
+    for (int i = 0; i < MAX_COMPACT_REASONS_COUNT; i++)
+    {
+        ExtOut("[%s]%35s: %d\n", (gc_heap_compact_reason_mandatory_p[i] ? "M" : "W"), str_heap_compact_reasons[i], data[i]);
+    }
+
+    ExtOut("\nExpansion mechanisms\n");
+    data = dataPerHeap->expandMechanisms;
+    for (int i = 0; i < MAX_EXPAND_MECHANISMS_COUNT; i++)
+    {
+        ExtOut("%30s: %d\n", str_heap_expand_mechanisms[i], data[i]);
+    }
+
+    ExtOut("\nOther mechanisms enabled\n");
+    data = dataPerHeap->bitMechanisms;
+    for (int i = 0; i < MAX_GC_MECHANISM_BITS_COUNT; i++)
+    {
+        ExtOut("%20s: %d\n", str_bit_mechanisms[i], data[i]);
+    }
+}
+#endif //GC_CONFIG_DRIVEN
+
+DECLARE_API(DumpGCData)
+{
+    INIT_API();
+
+#ifdef GC_CONFIG_DRIVEN
+    MINIDUMP_NOT_SUPPORTED();    
+
+    if (!InitializeHeapData ())
+    {
+        ExtOut("GC Heap not initialized yet.\n");
+        return S_OK;
+    }
+
+    DacpGCInterestingInfoData interestingInfo;
+    interestingInfo.RequestGlobal(g_sos);
+    for (int i = 0; i < MAX_GLOBAL_GC_MECHANISMS_COUNT; i++)
+    {
+        ExtOut("%-30s: %d\n", str_gc_global_mechanisms[i], interestingInfo.globalMechanisms[i]);
+    }
+
+    ExtOut("\n[info per heap]\n");
+
+    if (!IsServerBuild())
+    {
+        if (interestingInfo.Request(g_sos) != S_OK)
+        {
+            ExtOut("Error requesting interesting GC info\n");
+            return E_FAIL;
+        }
+            
+        PrintInterestingGCInfo(&interestingInfo);
+    }
+    else
+    {   
+        DWORD dwNHeaps = GetGcHeapCount();
+        DWORD dwAllocSize;
+        if (!ClrSafeInt<DWORD>::multiply(sizeof(CLRDATA_ADDRESS), dwNHeaps, dwAllocSize))
+        {
+            ExtOut("Failed to get GCHeaps:  integer overflow\n");
+            return Status;
+        }
+
+        CLRDATA_ADDRESS *heapAddrs = (CLRDATA_ADDRESS*)alloca(dwAllocSize);
+        if (g_sos->GetGCHeapList(dwNHeaps, heapAddrs, NULL) != S_OK)
+        {
+            ExtOut("Failed to get GCHeaps\n");
+            return Status;
+        }
+        
+        for (DWORD n = 0; n < dwNHeaps; n ++)
+        {
+            if (interestingInfo.Request(g_sos, heapAddrs[n]) != S_OK)
+            {
+                ExtOut("Heap %d: Error requesting interesting GC info\n", n);
+                return E_FAIL;
+            }
+
+            ExtOut("--------info for heap %d--------\n", n);
+            PrintInterestingGCInfo(&interestingInfo);
+            ExtOut("\n");
+        }
+    }
+
+    return S_OK;
+#else
+    ExtOut("Not implemented\n");
+    return S_OK;
+#endif //GC_CONFIG_DRIVEN
+}
 
 #ifndef FEATURE_PAL
 /**********************************************************************\
@@ -13846,6 +14192,8 @@ _EFN_GetManagedObjectFieldInfo(
     return S_OK;
 }
 
+#endif // FEATURE_PAL
+
 void PrintHelp (__in_z LPCSTR pszCmdName)
 {
     static LPSTR pText = NULL;
@@ -13862,39 +14210,30 @@ void PrintHelp (__in_z LPCSTR pszCmdName)
             return;
         }
 #else
-#define SOS_DOCUMENT_FILENAME "sosdocs.txt"
-
-        char  lpFilename[MAX_LONGPATH+12]; // + 12 to make enough room for strcat function.
-        DWORD nReturnedSize;
-        nReturnedSize = GetModuleFileName(g_hInstance, lpFilename, MAX_LONGPATH);
-        if ( nReturnedSize == 0 || nReturnedSize == MAX_LONGPATH ) {
-            // We consider both of these cases as failed.
-            ExtOut("Error getting the name for the current module\n");
+        int err = PAL_InitializeDLL();
+        if(err != 0)
+        {
+            ExtOut("Error initializing PAL\n");
             return;
         }
-
-        // Find the last "\" or "/" in the path.
-        char * pChar = lpFilename + strlen(lpFilename) - 1;
-        while ( pChar != lpFilename-1 && * pChar != '\\' && * pChar != '/' ) { * pChar-- = 0; }
-        strcat(lpFilename, SOS_DOCUMENT_FILENAME);
+        char lpFilename[MAX_LONGPATH + 12]; // + 12 to make enough room for strcat function.
+        strcpy_s(lpFilename, _countof(lpFilename), g_ExtClient->GetCoreClrDirectory());
+        strcat_s(lpFilename, _countof(lpFilename), "sosdocsunix.txt");
         
-        HANDLE hSosDocFile = CreateFileA(lpFilename,
-                                 GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        HANDLE hSosDocFile = CreateFileA(lpFilename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
         if (hSosDocFile == INVALID_HANDLE_VALUE) {
             ExtOut("Error finding documentation file\n");
             return;
         }
 
-        HANDLE hMappedSosDocFile = CreateFileMappingA(hSosDocFile,
-                                       NULL, PAGE_READONLY, 0, 0, NULL);
+        HANDLE hMappedSosDocFile = CreateFileMappingA(hSosDocFile, NULL, PAGE_READONLY, 0, 0, NULL);
         CloseHandle(hSosDocFile);
         if (hMappedSosDocFile == NULL) { 
             ExtOut("Error mapping documentation file\n");
             return;
         }
 
-        pText = (LPSTR)MapViewOfFile(hMappedSosDocFile,
-                           FILE_MAP_READ, 0, 0, 0);
+        pText = (LPSTR)MapViewOfFile(hMappedSosDocFile, FILE_MAP_READ, 0, 0, 0);
         CloseHandle(hMappedSosDocFile);
         if (pText == NULL)
         {
@@ -14005,5 +14344,3 @@ Help(PDEBUG_CLIENT Client, PCSTR Args)
     
     return S_OK;
 }
-
-#endif // FEATURE_PAL

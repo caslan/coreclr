@@ -328,16 +328,6 @@ GVAL_IMPL_INIT(DWORD, gAppDomainTLSIndex, TLS_OUT_OF_INDEXES);   // index ( (-1)
 
 #ifndef DACCESS_COMPILE
 #ifdef FEATURE_IMPLICIT_TLS
-EXTERN_C Thread* STDCALL GetThread()
-{
-    return gCurrentThreadInfo.m_pThread;
-}
-
-EXTERN_C AppDomain* STDCALL GetAppDomain()
-{
-    return gCurrentThreadInfo.m_pAppDomain;
-}
-
 BOOL SetThread(Thread* t)
 {
 	LIMITED_METHOD_CONTRACT
@@ -2146,7 +2136,7 @@ Thread::Thread()
 
     m_dwAVInRuntimeImplOkayCount = 0;
 
-#if defined(HAVE_GCCOVER) && defined(USE_REDIRECT_FOR_GCSTRESS) // GCCOVER
+#if defined(HAVE_GCCOVER) && defined(USE_REDIRECT_FOR_GCSTRESS) && !defined(PLATFORM_UNIX) // GCCOVER
     m_fPreemptiveGCDisabledForGCStress = false;
 #endif
 
@@ -2242,6 +2232,9 @@ Thread::Thread()
 #endif
 
     m_pAllLoggedTypes = NULL;
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+    m_pHijackReturnTypeClass = NULL;
+#endif
 }
 
 
@@ -10112,7 +10105,7 @@ static void ManagedThreadBase_DispatchMiddle(ManagedThreadCallState *pCallState)
     // also invokes SO_INTOLERANT code.
     BEGIN_SO_INTOLERANT_CODE(GetThread());
 
-    EX_TRY
+    EX_TRY_CPP_ONLY
     {
         // During an unwind, we have some cleanup:
         //

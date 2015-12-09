@@ -64,6 +64,24 @@ countSkippedTests=0
 xunitOutputPath=
 xunitTestOutputPath=
 
+# libExtension determines extension for dynamic library files
+OSName=$(uname -s)
+libExtension=
+case $OSName in
+    Linux)
+        libExtension="so"
+        ;;
+
+    Darwin)
+        libExtension="dylib"
+        ;;
+    *)
+        echo "Unsupported OS $OSName detected, configuring as if for Linux"
+        libExtension="so"
+        ;;
+esac
+
+
 function xunit_output_begin {
     xunitOutputPath=$testRootDir/coreclrtests.xml
     xunitTestOutputPath=${xunitOutputPath}.test
@@ -86,7 +104,7 @@ function xunit_output_add_test {
     local testResult=$3 # Pass, Fail, or Skip
     local testScriptExitCode=$4
 
-    local testPath=${scriptFilePath:0:(-3)} # Remove trailing ".sh"
+    local testPath=${scriptFilePath%.sh} # Remove trailing ".sh"
     local testDir=$(dirname "$testPath")
     local testName=$(basename "$testPath")
 
@@ -247,7 +265,7 @@ function exit_with_error {
     if ((printUsage != 0)); then
         print_usage
     fi
-    exit 1
+    exit $EXIT_CODE_EXCEPTION
 }
 
 # Handle Ctrl-C. We will stop execution and print the results that
@@ -311,8 +329,10 @@ function create_core_overlay {
         rm -f -r "$coreOverlayDir"
     fi
     mkdir "$coreOverlayDir"
-    find "$coreFxBinDir" -iname '*.dll' \! -iwholename '*test*' \! -iwholename '*/ToolRuntime/*' -exec cp -f -u '{}' "$coreOverlayDir/" \;
-    cp -f "$coreFxNativeBinDir/Native/"*.so "$coreOverlayDir/" 2>/dev/null
+
+    (cd $coreFxBinDir && find . -iname '*.dll' \! -iwholename '*test*' \! -iwholename '*/ToolRuntime/*' -exec cp -f '{}' "$coreOverlayDir/" \;)
+    cp -f "$coreFxNativeBinDir/Native/"*."$libExtension" "$coreOverlayDir/" 2>/dev/null
+
     cp -f "$coreClrBinDir/"* "$coreOverlayDir/" 2>/dev/null
     cp -f "$mscorlibDir/mscorlib.dll" "$coreOverlayDir/"
     cp -n "$testDependenciesDir"/* "$coreOverlayDir/" 2>/dev/null
@@ -333,7 +353,7 @@ function copy_test_native_bin_to_test_root {
     fi
 
     # Copy native test components from the native test build into the respective test directory in the test root directory
-    find "$testNativeBinDir" -type f -iname '*.so' |
+    find "$testNativeBinDir" -type f -iname '*.$libExtension' |
         while IFS='' read -r filePath || [ -n "$filePath" ]; do
             local dirPath=$(dirname "$filePath")
             local destinationDirPath=${testRootDir}${dirPath:${#testNativeBinDir}}
@@ -418,7 +438,10 @@ function run_test {
     local outputFileName=$(basename "$outputFilePath")
 
     # Convert DOS line endings to Unix if needed
-    sed -i 's/\r$//' "$scriptFileName"
+    perl -pi -e 's/\r\n|\n|\r/\n/g' "$scriptFileName"
+    
+    # Add executable file mode bit if needed
+    chmod +x "$scriptFileName"
 
     "./$scriptFileName" >"$outputFileName" 2>&1
     return $?
@@ -541,6 +564,11 @@ function run_tests_in_directory {
     done
 }
 
+# Exit code constants
+readonly EXIT_CODE_SUCCESS=0       # Script ran normally.
+readonly EXIT_CODE_EXCEPTION=1     # Script exited because something exceptional happened (e.g. bad arguments, Ctrl-C interrupt).
+readonly EXIT_CODE_TEST_FAILURE=2  # Script completed successfully, but one or more tests failed.
+
 # Argument variables
 testRootDir=
 testNativeBinDir=
@@ -558,7 +586,7 @@ do
     case $i in
         -h|--help)
             print_usage
-            exit 0
+            exit $EXIT_CODE_SUCCESS
             ;;
         -v|--verbose)
             verbose=1
@@ -602,7 +630,7 @@ do
         *)
             echo "Unknown switch: $i"
             print_usage
-            exit 0
+            exit $EXIT_CODE_SUCCESS
             ;;
     esac
 done
@@ -614,11 +642,11 @@ fi
 if [ -z "$testRootDir" ]; then
     echo "--testRootDir is required."
     print_usage
-    exit 1
+    exit $EXIT_CODE_EXCEPTION
 fi
 if [ ! -d "$testRootDir" ]; then
     echo "Directory specified by --testRootDir does not exist: $testRootDir"
-    exit 1
+    exit $EXIT_CODE_EXCEPTION
 fi
 
 xunit_output_begin
@@ -648,4 +676,9 @@ finish_remaining_tests
 
 print_results
 xunit_output_end
-exit 0
+
+if ((countFailedTests > 0)); then
+    exit $EXIT_CODE_TEST_FAILURE
+fi
+
+exit $EXIT_CODE_SUCCESS

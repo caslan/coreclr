@@ -66,6 +66,8 @@ elseif(PAL_CMAKE_PLATFORM_ARCH_ARM64)
   add_definitions(-D_WIN64=1)
 endif()
 
+# turn off capability to remove unused functions (which was enabled in debug build with sanitizers)
+set(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} -Wl,--no-gc-sections")
 
 add_compile_options(-fno-builtin)
 add_compile_options(-fPIC)
@@ -73,16 +75,19 @@ add_compile_options(-fPIC)
 if(PAL_CMAKE_PLATFORM_ARCH_AMD64)
   set(ARCH_SOURCES
     arch/i386/context2.S
+    arch/i386/debugbreak.S
     arch/i386/processor.cpp
   )
 elseif(PAL_CMAKE_PLATFORM_ARCH_ARM)
   set(ARCH_SOURCES
     arch/arm/context2.S
+    arch/arm/debugbreak.S
     arch/arm/processor.cpp
   )
 elseif(PAL_CMAKE_PLATFORM_ARCH_ARM64)
   set(ARCH_SOURCES
     arch/arm64/context2.S
+    arch/arm64/debugbreak.S
     arch/arm64/processor.cpp
   )
 endif()
@@ -106,7 +111,6 @@ set(SOURCES
   cruntime/wchar.cpp
   cruntime/wchartls.cpp
   debug/debug.cpp
-  exception/console.cpp
   exception/seh.cpp
   exception/signal.cpp
   file/directory.cpp
@@ -135,7 +139,6 @@ set(SOURCES
   misc/error.cpp
   misc/errorstrings.cpp
   misc/fmtmessage.cpp
-  misc/interlock.cpp
   misc/miscpalapi.cpp
   misc/msgbox.cpp
   misc/strutil.cpp

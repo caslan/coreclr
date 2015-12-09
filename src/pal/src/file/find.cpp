@@ -24,6 +24,7 @@ Revision History:
 #include "pal/thread.hpp"
 #include "pal/malloc.hpp"
 #include "pal/file.hpp"
+#include "pal/stackstring.hpp"
 
 #include "pal/palinternal.h"
 #include "pal/dbgmsg.h"
@@ -42,7 +43,6 @@ SET_DEFAULT_DEBUG_CHANNEL(FILE);
 namespace CorUnix
 {
     int InternalGlob(
-        CPalThread *pthrCurrent,
         const char *szPattern,
         int nFlags,
 #if ERROR_FUNC_FOR_GLOB_HAS_FIXED_PARAMS    
@@ -58,7 +58,6 @@ namespace CorUnix
 
     Input parameters:
 
-    pthrCurrent = reference to executing thread
     szPattern = pointer to a pathname pattern to be expanded
     nFlags = arguments to modify the behavior of glob
     pnErrFunc = pointer to a routine that handles errors during the glob call
@@ -75,7 +74,6 @@ namespace CorUnix
     --*/
     int
     InternalGlob(
-        CPalThread *pthrCurrent,
         const char *szPattern,
         int nFlags,
 #if ERROR_FUNC_FOR_GLOB_HAS_FIXED_PARAMS
@@ -87,9 +85,7 @@ namespace CorUnix
         )
     {
         int nRet = -1;
-        pthrCurrent->suspensionInfo.EnterUnsafeRegion();
         nRet = glob(szPattern, nFlags, pnErrFunc, pgGlob);
-        pthrCurrent->suspensionInfo.LeaveUnsafeRegion();
         return nRet;
     }
 }
@@ -103,7 +99,6 @@ static BOOL FILEDosGlobA(
 static int FILEGlobQsortCompare(const void *in_str1, const void *in_str2);
 
 static int FILEGlobFromSplitPath( 
-        CPalThread *pthrCurrent,
         const char *dir,
         const char *fname,
         const char *ext,
@@ -152,7 +147,7 @@ FindFirstFileA(
         goto done;
     }
 
-    find_data = (find_obj *)InternalMalloc(pthrCurrent, sizeof(find_obj));
+    find_data = (find_obj *)InternalMalloc(sizeof(find_obj));
     if ( find_data == NULL )
     {
         ERROR("Unable to allocate memory for find_data\n");
@@ -184,7 +179,7 @@ FindFirstFileA(
              *      c:\temp\foo.txt\bar  - ERROR_DIRECTORY
              *
              */
-            LPSTR lpTemp = InternalStrdup(pthrCurrent, (LPSTR)lpFileName);
+            LPSTR lpTemp = InternalStrdup((LPSTR)lpFileName);
             if ( !lpTemp )
             {
                 ERROR( "strdup failed!\n" );
@@ -214,7 +209,7 @@ FindFirstFileA(
                     }
                 }
             }
-            InternalFree(pthrCurrent, lpTemp);
+            InternalFree(lpTemp);
             lpTemp = NULL;
             goto done;
         }
@@ -239,7 +234,7 @@ done:
             {
                 globfree( &(find_data->gGlob) );
             }
-            InternalFree(pthrCurrent, find_data);
+            InternalFree(find_data);
         }
         if (dwLastError)
         {
@@ -560,7 +555,6 @@ FindClose(
     find_obj *find_data;
     BOOL  hRet = TRUE;
     DWORD dwLastError = 0;
-    CPalThread *pthrCurrent = InternalGetCurrentThread();
 
     PERF_ENTRY(FindClose);
     ENTRY("FindClose(hFindFile=%p)\n", hFindFile);
@@ -585,7 +579,7 @@ FindClose(
     {
         globfree( &(find_data->gGlob) );
     }
-    InternalFree(pthrCurrent, find_data);
+    InternalFree(find_data);
 
 done:
     if (dwLastError)
@@ -769,30 +763,50 @@ in broken-down form like _splitpath produces.
 ie. calling splitpath on a pattern then calling this function should
 produce the same result as just calling glob() on the pattern.
 --*/
-static int FILEGlobFromSplitPath( CPalThread *pthrCurrent,
-                                  const char *dir,
+static int FILEGlobFromSplitPath( const char *dir,
                                   const char *fname,
                                   const char *ext,
                                   int flags, 
                                   glob_t *pgGlob )
 {
     int  Ret;
-    char Pattern[MAX_LONGPATH];
-    char EscapedPattern[2*MAX_LONGPATH];
+    PathCharString PatternPS;
+    PathCharString EscapedPatternPS;
+    char * Pattern;
+    int length = 0;
+    char * EscapedPattern;
 
     TRACE("We shall attempt to glob from components [%s][%s][%s]\n",
           dir?dir:"NULL", fname?fname:"NULL", ext?ext:"NULL");
 
-    FILEMakePathA( Pattern, MAX_LONGPATH, dir, fname, ext );
+    if (dir) length = strlen(dir);
+    if (fname) length += strlen(fname);
+    if (ext) length += strlen(ext);
+    
+    Pattern = PatternPS.OpenStringBuffer(length);
+    if (NULL == Pattern)
+    {
+        ERROR("Not Enough memory.");
+        return -1;
+    }
+    FILEMakePathA( Pattern, length+1, dir, fname, ext );
+    PatternPS.CloseBuffer(length);
     TRACE("Assembled Pattern = [%s]\n", Pattern);
 
     /* special handling is needed to handle the case where
         filename contains '[' and ']' */
+    EscapedPattern = EscapedPatternPS.OpenStringBuffer(length*2);
+    if (NULL == EscapedPattern)
+    {
+        ERROR("Not Enough memory.");
+        return -1;
+    }
     FILEEscapeSquareBrackets( Pattern, EscapedPattern);
+    EscapedPatternPS.CloseBuffer(strlen(EscapedPattern));
 #ifdef GLOB_QUOTE
     flags |= GLOB_QUOTE;
 #endif  // GLOB_QUOTE
-    Ret = InternalGlob(pthrCurrent, EscapedPattern, flags, NULL, pgGlob);
+    Ret = InternalGlob(EscapedPattern, flags, NULL, pgGlob);
 
 #ifdef GLOB_NOMATCH
     if (Ret == GLOB_NOMATCH)
@@ -931,7 +945,7 @@ static BOOL FILEDosGlobA( CPalThread *pthrCurrent,
     if ( !(A && B) ) 
     {
         /* the original pattern */
-        globResult = FILEGlobFromSplitPath(pthrCurrent, Dir, Filename, Ext, 0, pgGlob);
+        globResult = FILEGlobFromSplitPath(Dir, Filename, Ext, 0, pgGlob);
         if ( globResult != 0 )
         {
             goto done;
@@ -940,7 +954,7 @@ static BOOL FILEDosGlobA( CPalThread *pthrCurrent,
         if (C)
         {
             /* the original pattern but '.' prepended to filename */
-            globResult = FILEGlobFromSplitPath(pthrCurrent, Dir, Filename - 1, Ext,
+            globResult = FILEGlobFromSplitPath(Dir, Filename - 1, Ext,
                                                GLOB_APPEND, pgGlob);
             if ( globResult != 0 )
             {
@@ -954,7 +968,7 @@ static BOOL FILEDosGlobA( CPalThread *pthrCurrent,
         /* if (A && B), this is the first glob() call. The first call
            to glob must use flags = 0, while proceeding calls should
            set the GLOB_APPEND flag. */
-        globResult = FILEGlobFromSplitPath(pthrCurrent, Dir, Filename, "",
+        globResult = FILEGlobFromSplitPath(Dir, Filename, "",
                                            (A && B)?0:GLOB_APPEND, pgGlob);
         if ( globResult != 0 )
         {
@@ -964,7 +978,7 @@ static BOOL FILEDosGlobA( CPalThread *pthrCurrent,
         if (C)
         {
             /* omit the extension and prepend '.' to filename */
-            globResult = FILEGlobFromSplitPath(pthrCurrent, Dir, Filename - 1, "",
+            globResult = FILEGlobFromSplitPath(Dir, Filename - 1, "",
                                                GLOB_APPEND, pgGlob);
             if ( globResult != 0 )
             {

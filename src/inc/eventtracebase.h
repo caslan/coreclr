@@ -227,6 +227,21 @@ extern BOOL g_fEEIJWStartup;
 
 #define GetClrInstanceId()  (static_cast<UINT16>(g_nClrInstanceId))
 
+#if defined(FEATURE_EVENT_TRACE) || defined(FEATURE_EVENTSOURCE_XPLAT)
+
+#include "clrconfig.h"
+ class XplatEventLogger
+{
+    public:
+        inline static BOOL  IsEventLoggingEnabled()
+        {
+            static ConfigDWORD configEventLogging;
+            return configEventLogging.val(CLRConfig::EXTERNAL_EnableEventLog);
+        }
+};
+
+#endif //defined(FEATURE_EVENT_TRACE)
+
 #if defined(FEATURE_EVENT_TRACE)
 
 #ifndef  FEATURE_PAL
@@ -283,16 +298,6 @@ extern "C" {
 
 #elif defined(__LINUX__)
 
-#include "clrconfig.h"
- class XplatEventLogger
-{
-    public:
-        inline static BOOL  IsEventLoggingEnabled()
-        {
-            static ConfigDWORD configEventLogging;
-            return configEventLogging.val(CLRConfig::EXTERNAL_EnableEventLog);
-        }
-};
 #include "clrallevents.h"
 #else
 #error "A tracing System has not been enabled for this Platform"
@@ -837,11 +842,6 @@ namespace ETW
 };
 
 
-#if defined(FEATURE_EVENT_TRACE) && !defined(FEATURE_PAL)
-//
-// The ONE and only ONE global instantiation of this class
-//
-extern ETW::CEtwTracer *  g_pEtwTracer;
 #define ETW_IS_TRACE_ON(level) ( FALSE ) // for fusion which is eventually going to get removed
 #define ETW_IS_FLAG_ON(flag) ( FALSE ) // for fusion which is eventually going to get removed
 
@@ -854,6 +854,12 @@ extern ETW::CEtwTracer *  g_pEtwTracer;
 #define ETWLoaderLoadTypeNotAvailable 0 // Static or Dynamic Load is only valid at LoaderPhaseStart and LoaderPhaseEnd events - for other events, 0 indicates "not available"
 #define ETWLoaderStaticLoad 0 // Static reference load
 #define ETWLoaderDynamicLoad 1 // Dynamic assembly load
+
+#if defined(FEATURE_EVENT_TRACE) && !defined(FEATURE_PAL)
+//
+// The ONE and only ONE global instantiation of this class
+//
+extern ETW::CEtwTracer *  g_pEtwTracer;
 
 //
 // Special Handling of Startup events

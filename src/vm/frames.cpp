@@ -45,6 +45,8 @@
 #include "interpreter.h"
 #endif // FEATURE_INTERPRETER
 
+#include "argdestination.h"
+
 #if CHECK_APP_DOMAIN_LEAKS
 #define CHECK_APP_DOMAIN    GC_CALL_CHECK_APP_DOMAIN
 #else
@@ -1278,7 +1280,8 @@ void TransitionFrame::PromoteCallerStackHelper(promote_func* fn, ScanContext* sc
     int argOffset;
     while ((argOffset = argit.GetNextOffset()) != TransitionBlock::InvalidOffset)
     {
-        pmsig->GcScanRoots(dac_cast<PTR_VOID>(pTransitionBlock + argOffset), fn, sc);
+        ArgDestination argDest(dac_cast<PTR_VOID>(pTransitionBlock), argOffset, argit.GetArgLocDescForStructInRegs());
+        pmsig->GcScanRoots(&argDest, fn, sc);
     }
 }
 
@@ -1451,7 +1454,7 @@ struct IsObjRefProtectedScanContext : public ScanContext
     }
 };
 
-void IsObjRefProtected (Object** ppObj, ScanContext* sc, DWORD)
+void IsObjRefProtected (Object** ppObj, ScanContext* sc, uint32_t)
 {
     LIMITED_METHOD_CONTRACT;
     IsObjRefProtectedScanContext * orefProtectedSc = (IsObjRefProtectedScanContext *)sc;
@@ -1820,6 +1823,7 @@ BOOL HelperMethodFrame::InsureInit(bool initialInit,
     // Work with a copy so that we only write the values once.
     // this avoids race conditions.
     LazyMachState* lazy = &m_MachState;
+    DWORD threadId = m_pThread->GetOSThreadId();
     MachState unwound;
     
     if (!initialInit &&
@@ -1829,6 +1833,7 @@ BOOL HelperMethodFrame::InsureInit(bool initialInit,
         LazyMachState::unwindLazyState(
             lazy, 
             &unwound, 
+            threadId,
             0,
             hostCallPreference);
 
@@ -1856,12 +1861,12 @@ BOOL HelperMethodFrame::InsureInit(bool initialInit,
              (m_Attribs & Frame::FRAME_ATTR_CAPTURE_DEPTH_2) != 0)
     {
         // explictly told depth
-        LazyMachState::unwindLazyState(lazy, &unwound, 2);
+        LazyMachState::unwindLazyState(lazy, &unwound, threadId, 2);
     }
     else
     {
         // True FCall 
-        LazyMachState::unwindLazyState(lazy, &unwound, 1);
+        LazyMachState::unwindLazyState(lazy, &unwound, threadId, 1);
     }
 
     _ASSERTE(unwound.isValid());

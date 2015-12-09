@@ -39,16 +39,11 @@ struct DhContext
 // something like GCDomain....
 // </TODO>
 
-typedef void enum_alloc_context_func(alloc_context*);
-
 class CNameSpace
 {
     friend struct ::_DacGlobals;
 
   public:
-
-    // Called on gc start
-    static void GcStartDoWork();
 
     static void GcScanSizedRefs(promote_func* fn, int condemned, int max_gen, ScanContext* sc);
 
@@ -60,7 +55,7 @@ class CNameSpace
 
     static void GcRuntimeStructuresValid (BOOL bValid);
 
-    static BOOL GetGcRuntimeStructuresValid ();
+    static bool GetGcRuntimeStructuresValid ();
 #ifdef DACCESS_COMPILE    
     static void EnumMemoryRegions(CLRDataEnumMemoryFlags flags);
 #endif // DACCESS_COMPILE
@@ -99,10 +94,6 @@ class CNameSpace
 
     // post-promotions callback some roots were demoted
     static void GcDemote (int condemned, int max_gen, ScanContext* sc);
-
-    static void GcEnumAllocContexts (enum_alloc_context_func* fn);
-
-    static void GcFixAllocContexts (void* arg, void *heap);
     
     static size_t AskForMoreReservedMemory (size_t old_size, size_t need_size);
 
@@ -110,9 +101,9 @@ class CNameSpace
     
 private:
 #ifdef DACCESS_COMPILE    
-    SVAL_DECL(LONG, m_GcStructuresInvalidCnt);
+    SVAL_DECL(int32_t, m_GcStructuresInvalidCnt);
 #else
-    static VOLATILE(LONG) m_GcStructuresInvalidCnt;
+    static VOLATILE(int32_t) m_GcStructuresInvalidCnt;
 #endif //DACCESS_COMPILE
 };
 

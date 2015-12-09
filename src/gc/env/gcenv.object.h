@@ -19,9 +19,9 @@
 class ObjHeader
 {
 private:
-#if defined(_WIN64)
+#if defined(BIT64)
     uint32_t m_uAlignpad;
-#endif // _WIN64
+#endif // BIT64
     uint32_t m_uSyncBlockValue;
 
 public:
@@ -120,29 +120,29 @@ public:
         return m_pMethTab;
     }
 
+    MethodTable * GetGCSafeMethodTable() const
+    {
+        return (MethodTable *)((uintptr_t)m_pMethTab & ~3);
+    }
+
     void RawSetMethodTable(MethodTable * pMT)
     {
         m_pMethTab = pMT;
     }
-
-    void SetMethodTable(MethodTable * pMT)
-    {
-        m_pMethTab = pMT;
-    }
 };
-#define MIN_OBJECT_SIZE     (2*sizeof(BYTE*) + sizeof(ObjHeader))
+#define MIN_OBJECT_SIZE     (2*sizeof(uint8_t*) + sizeof(ObjHeader))
 
 class ArrayBase : public Object
 {
-    DWORD m_dwLength;
+    uint32_t m_dwLength;
 
 public:
-    DWORD GetNumComponents()
+    uint32_t GetNumComponents()
     {
         return m_dwLength;
     }
 
-    static SIZE_T GetOffsetOfNumComponents()
+    static size_t GetOffsetOfNumComponents()
     {
         return offsetof(ArrayBase, m_dwLength);
     }

@@ -817,6 +817,7 @@
     <ThreadingSources Include="$(BclSourcesRoot)\System\Threading\Overlapped.cs" />
     <ThreadingSources Include="$(BclSourcesRoot)\System\Threading\ParameterizedThreadStart.cs" />
     <ThreadingSources Include="$(BclSourcesRoot)\System\Threading\ReaderWriterLock.cs" />
+    <ThreadingSources Condition="'$(FeatureCoreClr)'=='true'" Include="$(BclSourcesRoot)\System\Threading\Semaphore.cs" />
     <ThreadingSources Include="$(BclSourcesRoot)\System\Threading\SemaphoreFullException.cs" />
     <ThreadingSources Include="$(BclSourcesRoot)\System\Threading\SynchronizationLockException.cs" />
     <ThreadingSources Include="$(BclSourcesRoot)\System\Threading\Thread.cs" />
@@ -989,6 +990,7 @@
     <DiagnosticsSources Include="$(BclSourcesRoot)\System\Diagnostics\Eventing\EventDescriptor.cs" />
     <DiagnosticsSources Include="$(BclSourcesRoot)\System\Diagnostics\Eventing\EventProvider.cs" />
     <DiagnosticsSources Include="$(BclSourcesRoot)\System\Diagnostics\Eventing\EventSource.cs" />
+    <DiagnosticsSources Condition="'$(FeatureXplatEventSource)' == 'true'" Include="$(BclSourcesRoot)\System\Diagnostics\Eventing\XplatEventLogger.cs" />
     <DiagnosticsSources Include="$(BclSourcesRoot)\System\Diagnostics\Eventing\EventSourceException.cs" />
     <DiagnosticsSources Include="$(BclSourcesRoot)\System\Diagnostics\Eventing\FrameworkEventSource.cs" />
     <DiagnosticsSources Include="$(BclSourcesRoot)\System\Diagnostics\Eventing\StubEnvironment.cs" />

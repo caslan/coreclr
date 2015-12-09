@@ -7,16 +7,17 @@
 #include <cstdlib>
 #include "sosplugin.h"
 #include <string.h>
-#include <dbgtargetcontext.h>
 #include <string>
 
 ULONG g_currentThreadIndex = -1;
 ULONG g_currentThreadSystemId = -1;
 char *g_coreclrDirectory;
 
-DebugClient::DebugClient(lldb::SBDebugger &debugger, lldb::SBCommandReturnObject &returnObject) :
+DebugClient::DebugClient(lldb::SBDebugger &debugger, lldb::SBCommandReturnObject &returnObject, lldb::SBProcess *process, lldb::SBThread *thread) : 
     m_debugger(debugger),
-    m_returnObject(returnObject)
+    m_returnObject(returnObject),
+    m_currentProcess(process),
+    m_currentThread(thread)
 {
     returnObject.SetStatus(lldb::eReturnStatusSuccessFinishResult);
 }
@@ -172,7 +173,8 @@ DebugClient::Execute(
 }
 
 // PAL raise exception function and exception record pointer variable name
-// See coreclr\src\pal\src\exception\seh-unwind.cpp for the details.
+// See coreclr\src\pal\src\exception\seh-unwind.cpp for the details. This
+// function depends on RtlpRaisException not being inlined or optimized.
 #define FUNCTION_NAME "RtlpRaiseException"
 #define VARIABLE_NAME "ExceptionRecord"
 
@@ -207,11 +209,14 @@ DebugClient::GetLastEventInformation(
     {
         return E_FAIL;
     }
-    lldb::SBThread thread = process.GetSelectedThread();
+    lldb::SBThread thread = GetCurrentThread();
     if (!thread.IsValid())
     {
         return E_FAIL;
     }
+
+    *processId = process.GetProcessID();
+    *threadId = thread.GetThreadID();
 
     // Enumerate each stack frame at the special "throw"
     // breakpoint and find the raise exception function 
@@ -708,8 +713,8 @@ DebugClient::GetModuleDirectory(
 // Internal function
 ULONG64
 DebugClient::GetModuleBase(
-    lldb::SBTarget target,
-    lldb::SBModule module)
+    /* const */ lldb::SBTarget& target,
+    /* const */ lldb::SBModule& module)
 {
     // Find the first section with an valid base address
     int numSections = module.GetNumSections();
@@ -922,6 +927,19 @@ DebugClient::GetThreadContextById(
     dtcontext = (DT_CONTEXT*)context;
     dtcontext->ContextFlags = contextFlags;
 
+    GetContextFromFrame(frame, dtcontext);
+    hr = S_OK;
+
+exit:
+    return hr;
+}
+
+// Internal function
+void
+DebugClient::GetContextFromFrame(
+    /* const */ lldb::SBFrame& frame,
+    DT_CONTEXT *dtcontext)
+{
 #ifdef DBG_TARGET_AMD64
     dtcontext->Rip = frame.GetPC();
     dtcontext->Rsp = frame.GetSP();
@@ -969,28 +987,18 @@ DebugClient::GetThreadContextById(
     dtcontext->R11 = GetRegister(frame, "r11");
     dtcontext->R12 = GetRegister(frame, "r12");
 #endif
-
-    hr = S_OK;
-
-exit:
-    return hr;
 }
 
 // Internal function
 DWORD_PTR 
-DebugClient::GetRegister(lldb::SBFrame frame, const char *name)
+DebugClient::GetRegister(
+    /* const */ lldb::SBFrame& frame,
+    const char *name)
 {
     lldb::SBValue regValue = frame.FindRegister(name);
 
     lldb::SBError error;
     DWORD_PTR result = regValue.GetValueAsUnsigned(error);
-
-#ifdef _DEBUG
-    if (!regValue.IsValid() || error.Fail())
-    {
-        Output(DEBUG_OUTPUT_ERROR, "Invalid register name '%s'\n", name);
-    }
-#endif
 
     return result;
 }
@@ -1115,7 +1123,7 @@ DebugClient::GetExpression(
 // Internal function
 DWORD_PTR 
 DebugClient::GetExpression(
-    lldb::SBFrame frame,
+    /* const */ lldb::SBFrame& frame,
     lldb::SBError& error,
     PCSTR exp)
 {
@@ -1130,6 +1138,134 @@ DebugClient::GetExpression(
     return result;
 }
 
+HRESULT 
+DebugClient::VirtualUnwind(
+    DWORD threadID,
+    ULONG32 contextSize,
+    PBYTE context)
+{
+    lldb::SBProcess process;
+    lldb::SBThread thread;
+
+    if (context == NULL || contextSize < sizeof(DT_CONTEXT))
+    {
+        return E_FAIL;
+    }
+
+    process = GetCurrentProcess();
+    if (!process.IsValid())
+    {
+        return E_FAIL;
+    }
+
+    thread = process.GetThreadByID(threadID);
+    if (!thread.IsValid())
+    {
+        return E_FAIL;
+    }
+
+    DT_CONTEXT *dtcontext = (DT_CONTEXT*)context;
+    lldb::SBFrame frameFound;
+
+#ifdef DBG_TARGET_AMD64
+    DWORD64 spToFind = dtcontext->Rsp;
+#elif DBG_TARGET_ARM
+    DWORD spToFind = dtcontext->Sp;
+#endif
+    
+    int numFrames = thread.GetNumFrames();
+    for (int i = 0; i < numFrames; i++)
+    {
+        lldb::SBFrame frame = thread.GetFrameAtIndex(i);
+        if (!frame.IsValid())
+        {
+            break;
+        }
+
+        lldb::addr_t sp = frame.GetSP();
+
+        if (sp == spToFind && (i + 1) < numFrames)
+        {
+            // Get next frame after finding the match
+            frameFound = thread.GetFrameAtIndex(i + 1);
+            break;
+        }
+    }
+
+    if (!frameFound.IsValid())
+    {
+        return E_FAIL;
+    }
+
+    GetContextFromFrame(frameFound, dtcontext);
+
+    return S_OK;
+}
+
+bool 
+ExceptionBreakpointCallback(
+    void *baton, 
+    lldb::SBProcess &process,
+    lldb::SBThread &thread, 
+    lldb::SBBreakpointLocation &location)
+{
+    lldb::SBDebugger debugger = process.GetTarget().GetDebugger();
+
+    // Send the normal and error output to stdout/stderr since we
+    // don't have a return object from the command interpreter.
+    lldb::SBCommandReturnObject result;
+    result.SetImmediateOutputFile(stdout);
+    result.SetImmediateErrorFile(stderr);
+
+    // Save the process and thread to be used by the current process/thread 
+    // helper functions.
+    DebugClient* client = new DebugClient(debugger, result, &process, &thread);
+    return ((PFN_EXCEPTION_CALLBACK)baton)(client) == S_OK;
+}
+
+lldb::SBBreakpoint g_exceptionbp;
+
+HRESULT 
+DebugClient::SetExceptionCallback(
+    PFN_EXCEPTION_CALLBACK callback)
+{
+    if (!g_exceptionbp.IsValid())
+    {
+        lldb::SBTarget target = m_debugger.GetSelectedTarget();
+        if (!target.IsValid())
+        {
+            return E_FAIL;
+        }
+        lldb::SBBreakpoint exceptionbp = target.BreakpointCreateForException(lldb::LanguageType::eLanguageTypeC_plus_plus, false, true);
+        if (!exceptionbp.IsValid())
+        {
+            return E_FAIL;
+        }
+#ifdef FLAGS_ANONYMOUS_ENUM
+        exceptionbp.AddName("DoNotDeleteOrDisable");
+#endif
+        exceptionbp.SetCallback(ExceptionBreakpointCallback, (void *)callback);
+        g_exceptionbp = exceptionbp;
+    }
+    return S_OK;
+}
+
+HRESULT 
+DebugClient::ClearExceptionCallback()
+{
+    if (g_exceptionbp.IsValid())
+    {
+        lldb::SBTarget target = m_debugger.GetSelectedTarget();
+        if (!target.IsValid())
+        {
+            return E_FAIL;
+        }
+        target.BreakpointDelete(g_exceptionbp.GetID());
+        g_exceptionbp = lldb::SBBreakpoint();
+    }
+    return S_OK;
+}
+
 //----------------------------------------------------------------------------
 // Helper functions
 //----------------------------------------------------------------------------
@@ -1139,10 +1275,17 @@ DebugClient::GetCurrentProcess()
 {
     lldb::SBProcess process;
 
-    lldb::SBTarget target = m_debugger.GetSelectedTarget();
-    if (target.IsValid())
+    if (m_currentProcess == nullptr)
     {
-        process = target.GetProcess();
+        lldb::SBTarget target = m_debugger.GetSelectedTarget();
+        if (target.IsValid())
+        {
+            process = target.GetProcess();
+        }
+    }
+    else
+    {
+        process = *m_currentProcess;
     }
 
     return process;
@@ -1153,10 +1296,17 @@ DebugClient::GetCurrentThread()
 {
     lldb::SBThread thread;
 
-    lldb::SBProcess process = GetCurrentProcess();
-    if (process.IsValid())
+    if (m_currentThread == nullptr)
     {
-        thread = process.GetSelectedThread();
+        lldb::SBProcess process = GetCurrentProcess();
+        if (process.IsValid())
+        {
+            thread = process.GetSelectedThread();
+        }
+    }
+    else
+    {
+        thread = *m_currentThread;
     }
 
     return thread;

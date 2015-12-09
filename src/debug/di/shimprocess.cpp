@@ -133,9 +133,7 @@ void ShimProcess::SetProcess(ICorDebugProcess * pProcess)
     if (pProcess != NULL)
     {
         // Verify that DataTarget + new process have the same pid?
-        DWORD pid = 0;
-        _ASSERTE(SUCCEEDED(m_pLiveDataTarget->GetPid(&pid)));
-        _ASSERTE(m_pProcess->GetPid() == pid);
+        _ASSERTE(m_pProcess->GetPid() == m_pLiveDataTarget->GetPid());
     }
 }
 
@@ -740,11 +738,8 @@ HRESULT ShimProcess::HandleWin32DebugEvent(const DEBUG_EVENT * pEvent)
             // This assert could be our only warning of various catastrophic failures in the left-side.
             if (!dwFirstChance && (pRecord->ExceptionCode == STATUS_BREAKPOINT) && !m_fIsInteropDebugging)
             {            
-                DWORD pid = 0;
-                if (m_pLiveDataTarget != NULL) 
-                {
-                    m_pLiveDataTarget->GetPid(&pid);
-                }
+                DWORD pid = (m_pLiveDataTarget == NULL) ? 0 : m_pLiveDataTarget->GetPid();
+
                 CONSISTENCY_CHECK_MSGF(false, 
                     ("Unhandled breakpoint exception in debuggee (pid=%d (0x%x)) on thread %d(0x%x)\n"
                     "This may mean there was an assert in the debuggee on that thread.\n"
@@ -1748,11 +1743,8 @@ void ShimProcess::PreDispatchEvent(bool fRealCreateProcessEvent /*= false*/)
 CORDB_ADDRESS ShimProcess::GetCLRInstanceBaseAddress()
 {
     CORDB_ADDRESS baseAddress = CORDB_ADDRESS(NULL);
-    DWORD dwPid = 0;
-    if (FAILED(m_pLiveDataTarget->GetPid(&dwPid)))
-    {
-        return baseAddress;
-    }
+    DWORD dwPid = m_pLiveDataTarget->GetPid();
+
 #if defined(FEATURE_CORESYSTEM)
     // Debugger attaching to CoreCLR via CoreCLRCreateCordbObject should have already specified CLR module address.
     // Code that help to find it now lives in dbgshim.
@@ -1833,16 +1825,16 @@ HRESULT ShimProcess::FindLoadedCLR(CORDB_ADDRESS * pClrInstanceId)
 
 HMODULE ShimProcess::GetDacModule()
 {
-    
     HModuleHolder hDacDll;
+    WCHAR wszAccessDllPath[MAX_LONGPATH];
 
 #ifdef FEATURE_PAL
-    // For now on Unix we'll just search for DAC in the default location.
-    // Debugger can always control it by setting LD_LIBRARY_PATH env var.
-    WCHAR wszAccessDllPath[MAX_LONGPATH] = MAKEDLLNAME_W(W("mscordaccore"));
-
-#else    
-    WCHAR wszAccessDllPath[MAX_LONGPATH];
+    if (!PAL_GetPALDirectoryW(wszAccessDllPath, _countof(wszAccessDllPath)))
+    {
+        ThrowLastError();
+    }
+    wcscat_s(wszAccessDllPath, _countof(wszAccessDllPath), MAKEDLLNAME_W(W("mscordaccore")));
+#else
     //
     // Load the access DLL from the same directory as the the current CLR Debugging Services DLL.
     //
@@ -1852,7 +1844,7 @@ HMODULE ShimProcess::GetDacModule()
         ThrowLastError();
     }
 
-    PWSTR pPathTail = wcsrchr(wszAccessDllPath, '\\');
+    PWSTR pPathTail = wcsrchr(wszAccessDllPath, DIRECTORY_SEPARATOR_CHAR_W);
     if (!pPathTail)
     {
         ThrowHR(E_INVALIDARG);
@@ -1863,7 +1855,7 @@ HMODULE ShimProcess::GetDacModule()
     //   mscordaccore.dll  <-- coreclr
     //   mscordacwks.dll   <-- desktop
     PCWSTR eeFlavor = 
-#ifdef FEATURE_MAIN_CLR_MODULE_USES_CORE_NAME
+#if defined(FEATURE_MAIN_CLR_MODULE_USES_CORE_NAME)
         W("core");    
 #else
         W("wks");    
@@ -1877,7 +1869,7 @@ HMODULE ShimProcess::GetDacModule()
     {
         ThrowHR(E_INVALIDARG);
     }
-#endif //!FEATURE_PAL  
+#endif // FEATURE_PAL
 
     hDacDll.Assign(WszLoadLibrary(wszAccessDllPath));
     if (!hDacDll)
