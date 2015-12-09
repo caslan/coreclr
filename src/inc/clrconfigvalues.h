@@ -380,7 +380,7 @@ CONFIG_DWORD_INFO_EX(INTERNAL_JitDirectAlloc, W("JitDirectAlloc"), 0, "", CLRCon
 #if (!defined(DEBUG) && !defined(_DEBUG)) || (defined(CROSSGEN_COMPILE) && !defined(FEATURE_CORECLR))
 #define INTERNAL_JitEnableNoWayAssert_Default 0
 #else
-#define INTERNAL_JitEnableNoWayAssert_Default 1
+#define INTERNAL_JitEnableNoWayAssert_Default 0
 #endif
 RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_JitEnableNoWayAssert, W("JitEnableNoWayAssert"), INTERNAL_JitEnableNoWayAssert_Default, "", CLRConfig::REGUTIL_default)
 CONFIG_STRING_INFO_EX(INTERNAL_JitDisasm, W("JitDisasm"), "Dumps disassembly for specified method", CLRConfig::REGUTIL_default)
