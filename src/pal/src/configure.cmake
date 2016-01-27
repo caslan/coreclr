@@ -9,7 +9,10 @@ include(CheckLibraryExists)
 
 if(CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
   set(CMAKE_REQUIRED_INCLUDES /usr/local/include)
-elseif(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin)
+elseif(CMAKE_SYSTEM_NAME STREQUAL SunOS)
+  set(CMAKE_REQUIRED_INCLUDES /opt/local/include)
+endif()
+if(NOT CMAKE_SYSTEM_NAME STREQUAL Darwin AND NOT CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
   set(CMAKE_REQUIRED_DEFINITIONS "-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L")
 endif()
 
@@ -43,7 +46,9 @@ check_library_exists(pthread pthread_getattr_np "" HAVE_PTHREAD_GETATTR_NP)
 check_library_exists(pthread pthread_sigqueue "" HAVE_PTHREAD_SIGQUEUE)
 check_function_exists(sigreturn HAVE_SIGRETURN)
 check_function_exists(_thread_sys_sigreturn HAVE__THREAD_SYS_SIGRETURN)
+set(CMAKE_REQUIRED_LIBRARIES m)
 check_function_exists(copysign HAVE_COPYSIGN)
+set(CMAKE_REQUIRED_LIBRARIES)
 check_function_exists(fsync HAVE_FSYNC)
 check_function_exists(futimes HAVE_FUTIMES)
 check_function_exists(utimes HAVE_UTIMES)
@@ -93,7 +98,7 @@ check_type_size(off_t SIZEOF_OFF_T)
 
 check_cxx_symbol_exists(SYS_yield sys/syscall.h HAVE_YIELD_SYSCALL)
 check_cxx_symbol_exists(INFTIM poll.h HAVE_INFTIM)
-check_cxx_symbol_exists(CHAR_BIT sys/limits.h HAVE_CHAR_BIT)
+check_cxx_symbol_exists(CHAR_BIT limits.h HAVE_CHAR_BIT)
 check_cxx_symbol_exists(_DEBUG sys/user.h USER_H_DEFINES_DEBUG)
 check_cxx_symbol_exists(_SC_PHYS_PAGES unistd.h HAVE__SC_PHYS_PAGES)
 check_cxx_symbol_exists(_SC_AVPHYS_PAGES unistd.h HAVE__SC_AVPHYS_PAGES)
@@ -341,6 +346,19 @@ int main()
 
   exit(ret);
 }" HAVE_CLOCK_MONOTONIC)
+check_cxx_source_runs("
+#include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
+
+int main()
+{
+  int ret;
+  struct timespec ts;
+  ret = clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
+
+  exit(ret);
+}" HAVE_CLOCK_MONOTONIC_COARSE)
 check_cxx_source_runs("
 #include <stdlib.h>
 #include <mach/mach_time.h>
@@ -898,9 +916,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL Darwin)
   set(PAL_PT_DETACH PT_DETACH)
   set(PAL_PT_READ_D PT_READ_D)
   set(PAL_PT_WRITE_D PT_WRITE_D)
-  set(JA_JP_LOCALE_NAME ja_JP.SJIS)
-  set(KO_KR_LOCALE_NAME ko_KR.eucKR)
-  set(ZH_TW_LOCALE_NAME zh_TG.BIG5)
   set(HAS_FTRUNCATE_LENGTH_ISSUE 1)
 elseif(CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
   if(NOT HAVE_LIBUNWIND_H)
@@ -917,9 +932,6 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
   set(PAL_PT_DETACH PT_DETACH)
   set(PAL_PT_READ_D PT_READ_D)
   set(PAL_PT_WRITE_D PT_WRITE_D)
-  set(JA_JP_LOCALE_NAME ja_JP_LOCALE_NOT_FOUND)
-  set(KO_KR_LOCALE_NAME ko_KR_LOCALE_NOT_FOUND)
-  set(ZH_TW_LOCALE_NAME zh_TW_LOCALE_NOT_FOUND)
   set(HAS_FTRUNCATE_LENGTH_ISSUE 0)
 
   if(EXISTS "/lib/libc.so.7")
@@ -927,7 +939,40 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
   else()
     message(FATAL_ERROR "Cannot find libc on this system.")
   endif()
-  
+
+elseif(CMAKE_SYSTEM_NAME STREQUAL NetBSD)
+  if(NOT HAVE_LIBUNWIND_H)
+    unset(HAVE_LIBUNWIND_H CACHE)
+    message(WARNING "Cannot find libunwind. Try installing libunwind8 and libunwind8-dev (or the appropriate packages for your platform)")
+  endif()
+  if(NOT HAVE_BSD_UUID_H)
+    unset(HAVE_BSD_UUID_H CACHE)
+    message(FATAL_ERROR "Cannot find uuid.h")
+  endif()
+  set(DEADLOCK_WHEN_THREAD_IS_SUSPENDED_WHILE_BLOCKED_ON_MUTEX 0)
+  set(PAL_PTRACE "ptrace((cmd), (pid), (void*)(addr), (data))")
+  set(PAL_PT_ATTACH PT_ATTACH)
+  set(PAL_PT_DETACH PT_DETACH)
+  set(PAL_PT_READ_D PT_READ_D)
+  set(PAL_PT_WRITE_D PT_WRITE_D)
+  set(HAS_FTRUNCATE_LENGTH_ISSUE 0)
+
+elseif(CMAKE_SYSTEM_NAME STREQUAL SunOS)
+  if(NOT HAVE_LIBUNWIND_H)
+    unset(HAVE_LIBUNWIND_H CACHE)
+    message(FATAL_ERROR "Cannot find libunwind. Try installing libunwind8 and libunwind8-dev (or the appropriate packages for your platform)")
+  endif()
+  if(NOT HAVE_LIBUUID_H)
+    unset(HAVE_LIBUUID_H CACHE)
+    message(FATAL_ERROR "Cannot find libuuid. Try installing uuid-dev or the appropriate packages for your platform")
+  endif()
+  set(DEADLOCK_WHEN_THREAD_IS_SUSPENDED_WHILE_BLOCKED_ON_MUTEX 0)
+  set(PAL_PTRACE "ptrace((cmd), (pid), (caddr_t)(addr), (data))")
+  set(PAL_PT_ATTACH PT_ATTACH)
+  set(PAL_PT_DETACH PT_DETACH)
+  set(PAL_PT_READ_D PT_READ_D)
+  set(PAL_PT_WRITE_D PT_WRITE_D)
+  set(HAS_FTRUNCATE_LENGTH_ISSUE 0)
 else() # Anything else is Linux
   if(NOT HAVE_LIBUNWIND_H)
     unset(HAVE_LIBUNWIND_H CACHE)
@@ -947,11 +992,7 @@ else() # Anything else is Linux
   set(PAL_PT_DETACH PTRACE_DETACH)
   set(PAL_PT_READ_D PTRACE_PEEKDATA)
   set(PAL_PT_WRITE_D PTRACE_POKEDATA)
-  set(JA_JP_LOCALE_NAME ja_JP_LOCALE_NOT_FOUND)
-  set(KO_KR_LOCALE_NAME ko_KR_LOCALE_NOT_FOUND)
-  set(ZH_TW_LOCALE_NAME zh_TW_LOCALE_NOT_FOUND)
   set(HAS_FTRUNCATE_LENGTH_ISSUE 0)
 endif(CMAKE_SYSTEM_NAME STREQUAL Darwin)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
-

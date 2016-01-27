@@ -139,6 +139,7 @@ set(SOURCES
   misc/error.cpp
   misc/errorstrings.cpp
   misc/fmtmessage.cpp
+  misc/identity.cpp
   misc/miscpalapi.cpp
   misc/msgbox.cpp
   misc/strutil.cpp
@@ -203,11 +204,8 @@ add_library(coreclrpal
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL Linux)
-  # On ARM linking with libunwind will break C++ exceptions unless we first
-  # link with gcc_s, this is a libunwind issue
   if(PAL_CMAKE_PLATFORM_ARCH_ARM)
     target_link_libraries(coreclrpal
-      gcc_s
       unwind-arm
     )
   endif()
@@ -217,8 +215,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL Linux)
       unwind-x86_64
     )
   endif()
-    
+
   target_link_libraries(coreclrpal
+    gcc_s
     pthread
     rt
     dl
@@ -255,7 +254,7 @@ endif(CMAKE_SYSTEM_NAME STREQUAL Darwin)
 add_subdirectory(examples)
 
 if(CMAKE_SYSTEM_NAME STREQUAL Linux)
-add_subdirectory(eventprovider)
+    add_subdirectory($ENV{__IntermediatesDir}/Generated/eventprovider ${CMAKE_CURRENT_BINARY_DIR}/eventprovider)
 endif(CMAKE_SYSTEM_NAME STREQUAL Linux)
 
 # Install the static PAL library for VS

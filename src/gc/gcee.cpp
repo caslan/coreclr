@@ -379,21 +379,16 @@ size_t GCHeap::GetLastGCDuration(int generation)
     return dd_gc_elapsed_time (hp->dynamic_data_of (generation));
 }
 
+size_t GetHighPrecisionTimeStamp();
+
 size_t GCHeap::GetNow()
 {
-#ifdef MULTIPLE_HEAPS
-    gc_heap* hp = gc_heap::g_heaps[0];
-#else
-    gc_heap* hp = pGenGCHeap;
-#endif //MULTIPLE_HEAPS
-
-    return hp->get_time_now();
+    return GetHighPrecisionTimeStamp();
 }
 
-#if defined(GC_PROFILING) //UNIXTODO: Enable this for FEATURE_EVENT_TRACE
 void ProfScanRootsHelper(Object** ppObject, ScanContext *pSC, uint32_t dwFlags)
 {
-#if  defined(FEATURE_EVENT_TRACE)
+#if defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
     Object *pObj = *ppObject;
 #ifdef INTERIOR_POINTERS
     if (dwFlags & GC_CALL_INTERIOR)
@@ -409,7 +404,41 @@ void ProfScanRootsHelper(Object** ppObject, ScanContext *pSC, uint32_t dwFlags)
     }
 #endif //INTERIOR_POINTERS
     ScanRootsHelper(&pObj, pSC, dwFlags);
-#endif //  defined(FEATURE_EVENT_TRACE)
+#endif //  defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
+}
+
+// TODO - at some point we would like to completely decouple profiling
+// from ETW tracing using a pattern similar to this, where the
+// ProfilingScanContext has flags about whether or not certain things
+// should be tracked, and each one of these ProfilerShouldXYZ functions
+// will check these flags and determine what to do based upon that.
+// GCProfileWalkHeapWorker can, in turn, call those methods without fear
+// of things being ifdef'd out.
+
+// Returns TRUE if GC profiling is enabled and the profiler
+// should scan dependent handles, FALSE otherwise.
+BOOL ProfilerShouldTrackConditionalWeakTableElements() {
+#if defined(GC_PROFILING)
+    return CORProfilerTrackConditionalWeakTableElements();
+#else
+    return FALSE;
+#endif // defined (GC_PROFILING)
+}
+
+// If GC profiling is enabled, informs the profiler that we are done
+// tracing dependent handles.
+void ProfilerEndConditionalWeakTableElementReferences(void* heapId) {
+#if defined (GC_PROFILING)
+    g_profControlBlock.pProfInterface->EndConditionalWeakTableElementReferences(heapId);
+#endif // defined (GC_PROFILING)
+}
+
+// If GC profiling is enabled, informs the profiler that we are done
+// tracing root references.
+void ProfilerEndRootReferences2(void* heapId) {
+#if defined (GC_PROFILING)
+    g_profControlBlock.pProfInterface->EndRootReferences2(heapId);
+#endif // defined (GC_PROFILING)
 }
 
 // This is called only if we've determined that either:
@@ -420,6 +449,7 @@ void ProfScanRootsHelper(Object** ppObject, ScanContext *pSC, uint32_t dwFlags)
 //     objects, or both.
 // This can also be called to do a single walk for BOTH a) and b) simultaneously.  Since
 // ETW can ask for roots, but not objects
+#if defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
 void GCProfileWalkHeapWorker(BOOL fProfilerPinned, BOOL fShouldWalkHeapRootsForEtw, BOOL fShouldWalkHeapObjectsForEtw)
 {
     {
@@ -439,7 +469,7 @@ void GCProfileWalkHeapWorker(BOOL fProfilerPinned, BOOL fShouldWalkHeapRootsForE
                 // heap.
                 gc_heap* hp = gc_heap::g_heaps [hn];
                 SC.thread_number = hn;
-                CNameSpace::GcScanRoots(&ProfScanRootsHelper, max_generation, max_generation, &SC);
+                GCScan::GcScanRoots(&ProfScanRootsHelper, max_generation, max_generation, &SC);
 
                 // The finalizer queue is also a source of roots
                 SC.dwEtwRootKind = kEtwGCRootKindFinalizer;
@@ -447,7 +477,7 @@ void GCProfileWalkHeapWorker(BOOL fProfilerPinned, BOOL fShouldWalkHeapRootsForE
             }
 #else
             // Ask the vm to go over all of the roots
-            CNameSpace::GcScanRoots(&ProfScanRootsHelper, max_generation, max_generation, &SC);
+            GCScan::GcScanRoots(&ProfScanRootsHelper, max_generation, max_generation, &SC);
 
             // The finalizer queue is also a source of roots
             SC.dwEtwRootKind = kEtwGCRootKindFinalizer;
@@ -456,34 +486,32 @@ void GCProfileWalkHeapWorker(BOOL fProfilerPinned, BOOL fShouldWalkHeapRootsForE
 #endif // MULTIPLE_HEAPS
             // Handles are kept independent of wks/svr/concurrent builds
             SC.dwEtwRootKind = kEtwGCRootKindHandle;
-            CNameSpace::GcScanHandlesForProfilerAndETW(max_generation, &SC);
+            GCScan::GcScanHandlesForProfilerAndETW(max_generation, &SC);
 
             // indicate that regular handle scanning is over, so we can flush the buffered roots
             // to the profiler.  (This is for profapi only.  ETW will flush after the
             // entire heap was is complete, via ETW::GCLog::EndHeapDump.)
-#if defined (GC_PROFILING)
             if (fProfilerPinned)
             {
-                g_profControlBlock.pProfInterface->EndRootReferences2(&SC.pHeapId);
+                ProfilerEndRootReferences2(&SC.pHeapId);
             }
-#endif // defined (GC_PROFILING)
         }
 
         // **** Scan dependent handles: only if the profiler supports it or ETW wants roots
-        if ((fProfilerPinned && CORProfilerTrackConditionalWeakTableElements()) ||
+        if ((fProfilerPinned && ProfilerShouldTrackConditionalWeakTableElements()) ||
             fShouldWalkHeapRootsForEtw)
         {
             // GcScanDependentHandlesForProfiler double-checks
             // CORProfilerTrackConditionalWeakTableElements() before calling into the profiler
 
-            CNameSpace::GcScanDependentHandlesForProfilerAndETW(max_generation, &SC);
+            GCScan::GcScanDependentHandlesForProfilerAndETW(max_generation, &SC);
 
             // indicate that dependent handle scanning is over, so we can flush the buffered roots
             // to the profiler.  (This is for profapi only.  ETW will flush after the
             // entire heap was is complete, via ETW::GCLog::EndHeapDump.)
-            if (fProfilerPinned && CORProfilerTrackConditionalWeakTableElements())
+            if (fProfilerPinned && ProfilerShouldTrackConditionalWeakTableElements())
             {
-                g_profControlBlock.pProfInterface->EndConditionalWeakTableElementReferences(&SC.pHeapId);
+                ProfilerEndConditionalWeakTableElementReferences(&SC.pHeapId);
             }
         }
 
@@ -514,7 +542,7 @@ void GCProfileWalkHeapWorker(BOOL fProfilerPinned, BOOL fShouldWalkHeapRootsForE
         }
     }
 }
-#endif // defined(GC_PROFILING)
+#endif // defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE) 
 
 void GCProfileWalkHeap()
 {
@@ -540,15 +568,15 @@ void GCProfileWalkHeap()
     }
 #endif // defined (GC_PROFILING)
 
-#if  defined (GC_PROFILING)//UNIXTODO: Enable this for FEATURE_EVENT_TRACE
-    // If the profiling API didn't want us to walk the heap but ETW does, then do the
-    // walk here
+#if defined (GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
+    // we need to walk the heap if one of GC_PROFILING or FEATURE_EVENT_TRACE
+    // is defined, since both of them make use of the walk heap worker.
     if (!fWalkedHeapForProfiler && 
         (fShouldWalkHeapRootsForEtw || fShouldWalkHeapObjectsForEtw))
     {
         GCProfileWalkHeapWorker(FALSE /* fProfilerPinned */, fShouldWalkHeapRootsForEtw, fShouldWalkHeapObjectsForEtw);
     }
-#endif // FEATURE_EVENT_TRACE
+#endif // defined (GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
 }
 
 BOOL GCHeap::IsGCInProgressHelper (BOOL bConsiderGCStart)

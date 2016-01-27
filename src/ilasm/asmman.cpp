@@ -11,7 +11,9 @@
 
 #include "assembler.h"
 #include "strongname.h"
+#ifndef FEATURE_CORECLR
 #include "LegacyActivationShim.h"
+#endif
 #include <limits.h>
 #include <fusion.h>
 
@@ -113,7 +115,7 @@ mdToken             AsmMan::GetComTypeTokByName(
     return(tmp ? tmp->tkTok : mdExportedTypeNil);
 }
 
-AsmManAssembly*     AsmMan::GetAsmRefByName(__in __nullterminated char* szAsmRefName)
+AsmManAssembly*     AsmMan::GetAsmRefByName(__in __nullterminated const char* szAsmRefName)
 {
     AsmManAssembly* ret = NULL;
     if(szAsmRefName)
@@ -128,7 +130,7 @@ AsmManAssembly*     AsmMan::GetAsmRefByName(__in __nullterminated char* szAsmRef
     }
     return ret;
 }
-mdToken             AsmMan::GetAsmRefTokByName(__in __nullterminated char* szAsmRefName)
+mdToken             AsmMan::GetAsmRefTokByName(__in __nullterminated const char* szAsmRefName)
 {
     AsmManAssembly* tmp = GetAsmRefByName(szAsmRefName);
     return(tmp ? tmp->tkTok : mdAssemblyRefNil);
@@ -153,7 +155,7 @@ void    AsmMan::SetModuleName(__inout_opt __nullterminated char* szName)
 }
 //==============================================================================================================
 // Borrowed from VM\assembly.cpp
-
+#ifndef FEATURE_CORECLR
 HRESULT GetHash(__in LPWSTR moduleName,
                           ALG_ID iHashAlg,
                           BYTE** pbCurrentValue,  // should be NULL
@@ -222,6 +224,7 @@ HRESULT GetHash(__in LPWSTR moduleName,
 
     return hr;
 }
+#endif // !FEATURE_CORECLR
 //==============================================================================================================
 
 void    AsmMan::AddFile(__in __nullterminated char* szName, DWORD dwAttr, BinStr* pHashBlob)
@@ -275,14 +278,16 @@ void    AsmMan::EmitFiles()
             if(m_pAssembly      // and assembly is defined
                 && m_pAssembly->ulHashAlgorithm) // and hash algorithm is defined...
             { // then try to compute it
-                if(FAILED(GetHash(wzUniBuf,(ALG_ID)(m_pAssembly->ulHashAlgorithm),&pHash,&cbHash)))
+#ifndef FEATURE_CORECLR
+                if(SUCCEEDED(GetHash(wzUniBuf,(ALG_ID)(m_pAssembly->ulHashAlgorithm),&pHash,&cbHash)))
+                {
+                    tmp->pHash = new BinStr(pHash,cbHash);
+                }
+                else
+#endif // !FEATURE_CORECLR
                 {
                     pHash = NULL;
                     cbHash = 0;
-                }
-                else
-                {
-                    tmp->pHash = new BinStr(pHash,cbHash);
                 }
             }
         }
@@ -445,6 +450,7 @@ void    AsmMan::EndAssembly()
                 m_pCurAsmRef = NULL;
                 return;
             }
+#ifndef FEATURE_CORECLR
             if(m_pCurAsmRef->isAutodetect)
             {
                 IAssemblyName* pIAsmName;
@@ -582,6 +588,7 @@ void    AsmMan::EndAssembly()
                 else
                     report->error("Failed to create assembly name object for %S, hr=0x%08X\n",wzUniBuf,hr);
             } // end if isAutodetect
+#endif // !FEATURE_CORECLR
             m_AsmRefLst.PUSH(m_pCurAsmRef);
             m_pCurAsmRef->tkTok = TokenFromRid(m_AsmRefLst.COUNT(),mdtAssemblyRef);
         }
@@ -589,6 +596,7 @@ void    AsmMan::EndAssembly()
         {
             HRESULT                 hr = S_OK;
             m_pCurAsmRef->tkTok = TokenFromRid(1,mdtAssembly);
+
             // Determine the strong name public key. This may have been set
             // via a directive in the source or from the command line (which
             // overrides the directive). From the command line we may have
@@ -601,6 +609,11 @@ void    AsmMan::EndAssembly()
                 // character of the source ('@' for container).
                 if (*(((Assembler*)m_pAssembler)->m_wzKeySourceName) == L'@')
                 {
+#ifdef FEATURE_CORECLR
+                    report->error("Error: ilasm on CoreCLR does not support getting public key from container.\n");
+                    m_pCurAsmRef = NULL;
+                    return;
+#else
                     // Extract public key from container (works whether
                     // container has just a public key or an entire key
                     // pair).
@@ -618,6 +631,7 @@ void    AsmMan::EndAssembly()
                     }
                     m_sStrongName.m_fFullSign = TRUE;
                     m_sStrongName.m_dwPublicKeyAllocated = AsmManStrongName::AllocatedBySNApi;
+#endif // FEATURE_CORECLR
                 }
                 else
                 {
@@ -683,6 +697,11 @@ void    AsmMan::EndAssembly()
                     // from a consistent place.
                     if (m_sStrongName.m_fFullSign)
                     {
+#ifdef FEATURE_CORECLR
+                        report->error("Error: ilasm on CoreCLR does not support full sign.\n");
+                        m_pCurAsmRef = NULL;
+                        return;
+#else
                         m_sStrongName.m_pbPrivateKey = m_sStrongName.m_pbPublicKey;
                         m_sStrongName.m_cbPrivateKey = m_sStrongName.m_cbPublicKey;
 
@@ -704,6 +723,7 @@ void    AsmMan::EndAssembly()
                         }
     
                         m_sStrongName.m_dwPublicKeyAllocated = AsmManStrongName::AllocatedBySNApi;
+#endif // FEATURE_CORECLR
                     }
                 }
             }

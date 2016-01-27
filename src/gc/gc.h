@@ -204,6 +204,7 @@ struct ScanContext
 {
     Thread* thread_under_crawl;
     int thread_number;
+    uintptr_t stack_limit; // Lowest point on the thread stack that the scanning logic is permitted to read
     BOOL promotion; //TRUE: Promotion, FALSE: Relocation.
     BOOL concurrent; //TRUE: concurrent scanning 
 #if CHECK_APP_DOMAIN_LEAKS || defined (FEATURE_APPDOMAIN_RESOURCE_MONITORING) || defined (DACCESS_COMPILE)
@@ -225,6 +226,7 @@ struct ScanContext
 
         thread_under_crawl = 0;
         thread_number = -1;
+        stack_limit = 0;
         promotion = FALSE;
         concurrent = FALSE;
 #ifdef GC_PROFILING
@@ -254,7 +256,7 @@ struct ProfilingScanContext : ScanContext
         fProfilerPinned = fProfilerPinnedParam;
         pvEtwContext = NULL;
 #ifdef FEATURE_CONSERVATIVE_GC
-        // To not confuse CNameSpace::GcScanRoots
+        // To not confuse GCScan::GcScanRoots
         promotion = g_pConfig->GetGCConservative();
 #endif
     }
@@ -614,6 +616,12 @@ public:
 
     // static if since restricting for all heaps is fine
     virtual size_t GetValidSegmentSize(BOOL large_seg = FALSE) = 0;
+
+    static BOOL IsLargeObject(MethodTable *mt) {
+        WRAPPER_NO_CONTRACT;
+
+        return mt->GetBaseSize() >= LARGE_OBJECT_SIZE;
+    }
 
     static unsigned GetMaxGeneration() {
         LIMITED_METHOD_DAC_CONTRACT;  

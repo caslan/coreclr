@@ -506,11 +506,14 @@ Initialize(
             goto CLEANUP10;
         }
 
-        /* create file objects for standard handles */
-        if(!FILEInitStdHandles())
+        if (flags & PAL_INITIALIZE_STD_HANDLES)
         {
-            ERROR("Unable to initialize standard file handles\n");
-            goto CLEANUP13;
+            /* create file objects for standard handles */
+            if (!FILEInitStdHandles())
+            {
+                ERROR("Unable to initialize standard file handles\n");
+                goto CLEANUP13;
+            }
         }
 
         if (FALSE == CRTInitStdStreams())
@@ -550,7 +553,6 @@ CLEANUP15:
 CLEANUP13:
     VIRTUALCleanup();
 CLEANUP10:
-    LOADFreeModules(TRUE);
     MAPCleanup();
 CLEANUP6:
     SEHCleanup();
@@ -742,32 +744,17 @@ done:
 
 /*++
 Function:
-  PALCommonCleanup
+  PAL_Shutdown
 
-Utility function to prepare for shutdown.
-
+Abstract:
+  This function shuts down the PAL WITHOUT exiting the current process.
 --*/
-void 
-PALCommonCleanup()
+void
+PALAPI
+PAL_Shutdown(
+    void)
 {
-    static bool cleanupDone = false;
-
-    if (!cleanupDone)
-    {
-        cleanupDone = true;
-
-        PALSetShutdownIntent();
-
-        //
-        // Let the synchronization manager know we're about to shutdown
-        //
-
-        CPalSynchMgrController::PrepareForShutdown();
-
-#ifdef _DEBUG
-        PROCDumpThreadList();
-#endif
-    }
+    TerminateCurrentProcessNoExit(FALSE /* bTerminateUnconditionally */);
 }
 
 /*++
@@ -781,7 +768,7 @@ Abstract:
 void
 PALAPI
 PAL_Terminate(
-          void)
+    void)
 {
     PAL_TerminateEx(0);
 }
@@ -797,7 +784,8 @@ the specified exit code.
 --*/
 void
 PALAPI
-PAL_TerminateEx(int exitCode)
+PAL_TerminateEx(
+    int exitCode)
 {
     ENTRY_EXTERNAL("PAL_TerminateEx()\n");
 
@@ -809,6 +797,7 @@ PAL_TerminateEx(int exitCode)
         LOGEXIT("PAL_Terminate returns.\n");
     }
 
+    // Declare the beginning of shutdown 
     PALSetShutdownIntent();
 
     LOGEXIT("PAL_TerminateEx is exiting the current process.\n");
@@ -825,7 +814,7 @@ Abstract:
 void
 PALAPI
 PAL_InitializeDebug(
-          void)
+    void)
 {
     PERF_ENTRY(PAL_InitializeDebug);
     ENTRY("PAL_InitializeDebug()\n");
@@ -842,31 +831,45 @@ Function:
 
 Returns TRUE if startup has reached a point where thread data is available
 --*/
-BOOL
-PALIsThreadDataInitialized()
+BOOL PALIsThreadDataInitialized()
 {
     return g_fThreadDataAvailable;
 }
 
 /*++
 Function:
-  PALShutdown
+  PALCommonCleanup
 
-  sets the PAL's initialization count to zero, so that PALIsInitialized will 
-  return FALSE. called by PROCCleanupProcess to tell some functions that the
-  PAL isn't fully functional, and that they should use an alternate code path
-  
-(no parameters, no retun vale)
+  Utility function to prepare for shutdown.
+
 --*/
-void
-PALShutdown(
-          void)
+void 
+PALCommonCleanup()
 {
+    static bool cleanupDone = false;
+
+    // Declare the beginning of shutdown
+    PALSetShutdownIntent();
+
+    if (!cleanupDone)
+    {
+        cleanupDone = true;
+
+        //
+        // Let the synchronization manager know we're about to shutdown
+        //
+        CPalSynchMgrController::PrepareForShutdown();
+
+#ifdef _DEBUG
+        PROCDumpThreadList();
+#endif
+    }
+
+    // Mark that the PAL is uninitialized
     init_count = 0;
 }
 
-BOOL
-PALIsShuttingDown()
+BOOL PALIsShuttingDown()
 {
     /* ROTORTODO: This function may be used to provide a reader/writer-like
        mechanism (or a ref counting one) to prevent PAL APIs that need to access 
@@ -878,8 +881,7 @@ PALIsShuttingDown()
     return shutdown_intent;
 }
 
-void
-PALSetShutdownIntent()
+void PALSetShutdownIntent()
 {
     /* ROTORTODO: See comment in PALIsShuttingDown */
     shutdown_intent = TRUE;

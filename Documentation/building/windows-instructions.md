@@ -31,6 +31,13 @@ The CoreCLR build relies on CMake for the build. We are currently using CMake 3.
 - Install [CMake](http://www.cmake.org/download) for Windows.
 - Add it to the PATH environment variable.
 
+Python
+---------
+Python is used in the build system. We are currently using python 2.7.9, although
+any recent (2.4+) version of Python should work, including Python 3.
+- Install [Python](https://www.python.org/downloads/) for Windows.
+- Add it to the PATH environment variable.
+
 Git Setup
 ---------
 

@@ -39,6 +39,7 @@ function print_usage {
     echo '  --sequential                 : Run tests sequentially (default is to run in parallel).'
     echo '  -v, --verbose                : Show output from each test.'
     echo '  -h|--help                    : Show usage information.'
+    echo '  --useServerGC                : Enable server GC for this test run'
     echo ''
 }
 
@@ -578,6 +579,7 @@ mscorlibDir=
 coreFxBinDir=
 coreFxNativeBinDir=
 ((disableEventLogging = 0))
+((serverGC = 0))
 
 # Handle arguments
 verbose=0
@@ -627,6 +629,9 @@ do
         --sequential)
             ((maxProcesses = 1))
             ;;
+        --useServerGC)
+            ((serverGC = 1))
+            ;;
         *)
             echo "Unknown switch: $i"
             print_usage
@@ -639,6 +644,8 @@ if (( disableEventLogging == 0)); then
         export COMPlus_EnableEventLog=1
 fi
 
+export CORECLR_SERVER_GC="$serverGC"
+
 if [ -z "$testRootDir" ]; then
     echo "--testRootDir is required."
     print_usage
@@ -649,11 +656,18 @@ if [ ! -d "$testRootDir" ]; then
     exit $EXIT_CODE_EXCEPTION
 fi
 
+    
+# Copy native interop test libraries over to the mscorlib path in
+# order for interop tests to run on linux.
+cp $mscorlibDir/bin/* $mscorlibDir   
+
 xunit_output_begin
 create_core_overlay
 copy_test_native_bin_to_test_root
 load_unsupported_tests
 load_failing_tests
+
+ 
 
 cd "$testRootDir"
 if [ -z "$testDirectories" ]

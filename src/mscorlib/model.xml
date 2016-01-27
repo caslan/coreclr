@@ -162,6 +162,8 @@
     <Type Name="System.AppContext">
       <Member Name="get_BaseDirectory" />
       <Member MemberType="Property" Name="BaseDirectory" />
+      <Member Name="get_TargetFrameworkName" />
+      <Member MemberType="Property" Name="TargetFrameworkName" />
       <Member Name="DefineSwitchDefault(System.String,System.Boolean)" />
       <Member Name="SetSwitch(System.String,System.Boolean)" />
       <Member Name="TryGetSwitch(System.String,System.Boolean@)" />
@@ -1021,6 +1023,7 @@
     <Member Name="get_Default" />
     <Member Name="SetProfileOptimizationRoot(System.String)" />
     <Member Name="StartProfileOptimization(System.String)" />
+    <Member MemberType="Event" Name="Resolving" />
     </Type>
     <Type Name="System.Reflection.Metadata.AssemblyExtensions">
       <Member Name="TryGetRawMetadata(System.Reflection.Assembly,System.Byte*@,System.Int32@)"/>
@@ -1956,6 +1959,7 @@
     </Type>
     <Type Name="System.Environment">
       <Member Name="get_CurrentManagedThreadId"  />
+      <Member Name="get_MachineName"  />
       <Member Name="get_OSVersion" />
       <Member Name="get_ProcessorCount" />      
       <Member Name="get_StackTrace" />
@@ -3580,6 +3584,7 @@
       <Member Name="GetCustomAttributes(System.Boolean)" />
       <Member Name="GetCustomAttributes(System.Type,System.Boolean)" />
       <Member Name="GetExecutingAssembly" />
+      <Member Name="GetEntryAssembly" />
       <Member Name="GetExportedTypes" Condition="FEATURE_LEGACYNETCF" />
       <Member Name="GetManifestResourceNames" />
       <Member Name="GetManifestResourceStream(System.String)" />
@@ -7853,10 +7858,7 @@
       <Member Name="#ctor(System.Threading.ThreadStart)" />
       <Member Name="#ctor(System.Threading.ParameterizedThreadStart)" />
       <Member Name="MemoryBarrier" />
-      <Member Name="Abort" />
-      <!--
-      //<Member Name="Abort(System.Object)" />
-      -->
+      <Member Name="Abort" Condition="FEATURE_LEGACYSURFACE" />
       <Member Name="Finalize" />
       <Member Name="get_CurrentCulture" />
       <Member Name="get_CurrentThread" />
@@ -8152,6 +8154,12 @@
       <Member MemberType="Property" Name="Local" />
       <Member MemberType="Property" Name="Utc" />
     </Type>
+    <Type Status="ApiFxInternal" Name="System.TimeZoneInfo+AdjustmentRule">
+      <!-- CreateAdjustmentRule doesn't have a public contract, but tests and other callers can use Reflection to invoke it, so ensure it is left in mscorlib. -->
+      <Member Status="ApiRoot" Name="CreateAdjustmentRule(System.DateTime,System.DateTime,System.TimeSpan,System.TimeZoneInfo+TransitionTime,System.TimeZoneInfo+TransitionTime)" />
+    </Type>
+    <Type Status="ApiFxInternal" Name="System.TimeZoneInfo+TransitionTime">
+    </Type>
     <Type Name="System.Tuple">
       <Member Name="Create&lt;T1&gt;(T1)" />
       <Member Name="Create&lt;T1,T2&gt;(T1,T2)" />
@@ -8417,6 +8425,7 @@
       <Member Name="IsPointerImpl" />
       <Member Name="IsPrimitiveImpl" />
       <Member Name="IsSubclassOf(System.Type)" />
+      <Member Name="IsEquivalentTo(System.Type)" />
       <Member Name="IsValueTypeImpl" />
       <Member Name="MakeArrayType" Condition="FEATURE_LEGACYNETCF" />
       <Member Name="MakeArrayType(System.Int32)" Condition="FEATURE_LEGACYNETCF" />
@@ -9741,9 +9750,6 @@
       <Member Name="ReleaseAllData" />
       <Member Name="GetEventProvider(System.RuntimeType)" />
     </Type>
-    <Type Status="ImplRoot" Name="System.Array+FunctorComparer&lt;T&gt;">
-      <Member Name="Compare(T,T)" />
-    </Type>
     <Type Status="ImplRoot" Name="System.BCLDebug">
       <Member Name="GetRegistryLoggingValues(System.Boolean@,System.Boolean@,System.Int32@,System.Boolean@,System.Boolean@,System.Boolean@)" /> <!-- EE -->
     </Type>
@@ -9760,10 +9766,6 @@
       <Member MemberType="Field" Name="_objectReference" />
     </Type>
     <Type Status="ImplRoot" Name="System.Diagnostics.StackFrameHelper" />
-
-    <Type Status="ImplRoot" Name="System.Diagnostics.Tracing.EnumHelper&lt;UnderlyingType&gt;">
-      <Member Name="Identity(UnderlyingType)" />
-    </Type>
 
     <Type Name="System.Diagnostics.Tracing.EventAttribute">
       <Member Name="#ctor(System.Int32)" />

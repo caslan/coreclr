@@ -61,7 +61,7 @@ if(WIN32)
     if (CLR_CMAKE_PLATFORM_ARCH_AMD64)
         set(CORDBDI_SOURCES
           ${CORDBDI_SOURCES}
-          amd64/floatconversion.asm
+          ${ARCH_SOURCES_DIR}/floatconversion.asm
         )
     endif()
 elseif(CLR_CMAKE_PLATFORM_UNIX)
@@ -70,7 +70,7 @@ elseif(CLR_CMAKE_PLATFORM_UNIX)
     if(CLR_CMAKE_PLATFORM_ARCH_AMD64)
       set(CORDBDI_SOURCES
         ${CORDBDI_SOURCES}
-        amd64/floatconversion.S
+        ${ARCH_SOURCES_DIR}/floatconversion.S
       )
     endif()
 
@@ -78,4 +78,4 @@ endif(WIN32)
 
 add_precompiled_header(stdafx.h stdafx.cpp CORDBDI_SOURCES)
 
-add_library(cordbdi STATIC ${CORDBDI_SOURCES})
+add_library_clr(cordbdi STATIC ${CORDBDI_SOURCES})

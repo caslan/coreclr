@@ -481,9 +481,10 @@ typedef long time_t;
 #define PAL_INITIALIZE_NONE            0x00
 #define PAL_INITIALIZE_SYNC_THREAD     0x01
 #define PAL_INITIALIZE_EXEC_ALLOCATOR  0x02
+#define PAL_INITIALIZE_STD_HANDLES     0x04
 
 // PAL_Initialize() flags
-#define PAL_INITIALIZE                 PAL_INITIALIZE_SYNC_THREAD
+#define PAL_INITIALIZE                 (PAL_INITIALIZE_SYNC_THREAD | PAL_INITIALIZE_STD_HANDLES)
 
 // PAL_InitializeDLL() flags - don't start any of the helper threads
 #define PAL_INITIALIZE_DLL             PAL_INITIALIZE_NONE       
@@ -542,6 +543,15 @@ PAL_EntryPoint(
     IN LPVOID lpParameter);
 
 /// <summary>
+/// This function shuts down PAL WITHOUT exiting the current process.
+/// </summary>
+PALIMPORT
+void
+PALAPI
+PAL_Shutdown(
+    void);
+
+/// <summary>
 /// This function shuts down PAL and exits the current process.
 /// </summary>
 PALIMPORT
@@ -560,6 +570,39 @@ PALAPI
 PAL_TerminateEx(
     int exitCode);
 
+typedef VOID (*PSHUTDOWN_CALLBACK)(void);
+
+PALIMPORT
+VOID
+PALAPI
+PAL_SetShutdownCallback(
+    IN PSHUTDOWN_CALLBACK callback);
+
+typedef VOID (*PPAL_STARTUP_CALLBACK)(
+    char *modulePath,
+    HMODULE hModule,
+    PVOID parameter);
+
+PALIMPORT
+DWORD
+PALAPI
+PAL_RegisterForRuntimeStartup(
+    IN DWORD dwProcessId,
+    IN PPAL_STARTUP_CALLBACK pfnCallback,
+    IN PVOID parameter,
+    OUT PVOID *ppUnregisterToken);
+
+PALIMPORT
+DWORD
+PALAPI
+PAL_UnregisterForRuntimeStartup(
+    IN PVOID pUnregisterToken);
+
+PALIMPORT
+BOOL
+PALAPI
+PAL_NotifyRuntimeStarted();
+
 PALIMPORT
 void
 PALAPI
@@ -577,23 +620,6 @@ VOID
 PALAPI
 PAL_UnregisterModule(
     IN HINSTANCE hInstance);
-
-PALIMPORT
-HMODULE
-PALAPI
-PAL_RegisterLibraryW(
-    IN LPCWSTR lpLibFileName);
-
-PALIMPORT
-BOOL
-PALAPI
-PAL_UnregisterLibraryW(
-    IN HMODULE hLibModule);
-
-#ifdef UNICODE
-#define PAL_RegisterLibrary PAL_RegisterLibraryW
-#define PAL_UnregisterLibrary PAL_UnregisterLibraryW
-#endif
 
 PALIMPORT
 BOOL
@@ -622,15 +648,6 @@ PAL_Random(
     IN BOOL bStrong,
     IN OUT LPVOID lpBuffer,
     IN DWORD dwLength);
-
-// This helper will be used *only* by the CoreCLR to determine
-// if an address lies inside CoreCLR or not.
-//
-// This shouldnt be used by any other component that links into the PAL.
-PALIMPORT 
-BOOL
-PALAPI
-PAL_IsIPInCoreCLR(IN PVOID address);
 
 #ifdef PLATFORM_UNIX
 
@@ -2751,13 +2768,10 @@ typedef struct _CONTEXT {
 #define CONTEXT_EXCEPTION_REQUEST 0x40000000
 #define CONTEXT_EXCEPTION_REPORTING 0x80000000
 
-typedef struct _M128U {
+typedef struct DECLSPEC_ALIGN(16) _M128A {
     ULONGLONG Low;
     LONGLONG High;
-} M128U, *PM128U;
-
-// Same as _M128U but aligned to a 16-byte boundary
-typedef DECLSPEC_ALIGN(16) M128U M128A, *PM128A;
+} M128A, *PM128A;
 
 typedef struct _XMM_SAVE_AREA32 {
     WORD   ControlWord;
@@ -3401,7 +3415,7 @@ GetThreadTimes(
         OUT LPFILETIME lpExitTime,
         OUT LPFILETIME lpKernelTime,
         OUT LPFILETIME lpUserTime);
-		
+    
 #define TLS_OUT_OF_INDEXES ((DWORD)0xFFFFFFFF)
 
 PALIMPORT
@@ -3462,26 +3476,42 @@ PALIMPORT BOOL PALAPI PAL_VirtualUnwindOutOfProc(CONTEXT *context,
 
 #ifdef PLATFORM_UNIX
 
-#if defined(__FreeBSD__) && defined(_X86_)
-#define PAL_CS_NATIVE_DATA_SIZE 12
-#elif defined(__FreeBSD__) && defined(__x86_64__)
-#define PAL_CS_NATIVE_DATA_SIZE 24
-#elif defined(__sun__)
-#define PAL_CS_NATIVE_DATA_SIZE 48
-#elif defined(__hpux__) && (defined(__hppa__) || defined (__ia64__))
-#define PAL_CS_NATIVE_DATA_SIZE 148
-#elif defined(_AIX)
+/* PAL_CS_NATIVE_DATA_SIZE is defined as sizeof(PAL_CRITICAL_SECTION_NATIVE_DATA) */
+
+#if defined(_AIX)
 #define PAL_CS_NATIVE_DATA_SIZE 100
 #elif defined(__APPLE__) && defined(__i386__)
 #define PAL_CS_NATIVE_DATA_SIZE 76
 #elif defined(__APPLE__) && defined(__x86_64__)
 #define PAL_CS_NATIVE_DATA_SIZE 120
-#elif defined(__LINUX__) && defined(__x86_64__)
-#define PAL_CS_NATIVE_DATA_SIZE 96
+#elif defined(__FreeBSD__) && defined(_X86_)
+#define PAL_CS_NATIVE_DATA_SIZE 12
+#elif defined(__FreeBSD__) && defined(__x86_64__)
+#define PAL_CS_NATIVE_DATA_SIZE 24
+#elif defined(__hpux__) && (defined(__hppa__) || defined (__ia64__))
+#define PAL_CS_NATIVE_DATA_SIZE 148
 #elif defined(__LINUX__) && defined(_ARM_)
 #define PAL_CS_NATIVE_DATA_SIZE 80
 #elif defined(__LINUX__) && defined(_ARM64_)
 #define PAL_CS_NATIVE_DATA_SIZE 116
+#elif defined(__LINUX__) && defined(__x86_64__)
+#define PAL_CS_NATIVE_DATA_SIZE 96
+#elif defined(__NetBSD__) && defined(__amd64__)
+#define PAL_CS_NATIVE_DATA_SIZE 96
+#elif defined(__NetBSD__) && defined(__earm__)
+#define PAL_CS_NATIVE_DATA_SIZE 56
+#elif defined(__NetBSD__) && defined(__hppa__)
+#define PAL_CS_NATIVE_DATA_SIZE 92
+#elif defined(__NetBSD__) && defined(__i386__)
+#define PAL_CS_NATIVE_DATA_SIZE 56
+#elif defined(__NetBSD__) && defined(__mips__)
+#define PAL_CS_NATIVE_DATA_SIZE 56
+#elif defined(__NetBSD__) && (defined(__sparc__) && !defined(__sparc64__))
+#define PAL_CS_NATIVE_DATA_SIZE 56
+#elif defined(__NetBSD__) && defined(__sparc64__)
+#define PAL_CS_NATIVE_DATA_SIZE 92
+#elif defined(__sun__)
+#define PAL_CS_NATIVE_DATA_SIZE 48
 #else 
 #warning 
 #error  PAL_CS_NATIVE_DATA_SIZE is not defined for this architecture
@@ -3537,6 +3567,7 @@ SetErrorMode(
 #define MEM_RESERVE                     0x2000
 #define MEM_DECOMMIT                    0x4000
 #define MEM_RELEASE                     0x8000
+#define MEM_RESET                       0x80000
 #define MEM_FREE                        0x10000
 #define MEM_PRIVATE                     0x20000
 #define MEM_MAPPED                      0x40000
@@ -3694,7 +3725,9 @@ Return value:
     A valid base address if successful.
     0 if failure
 --*/
-void * PAL_LOADLoadPEFile(HANDLE hFile);
+void *
+PALAPI
+PAL_LOADLoadPEFile(HANDLE hFile);
 
 /*++
     PAL_LOADUnloadPEFile
@@ -3708,9 +3741,9 @@ Return value:
     TRUE - success
     FALSE - failure (incorrect ptr, etc.)
 --*/
-
-BOOL PAL_LOADUnloadPEFile(void * ptr);
-
+BOOL 
+PALAPI
+PAL_LOADUnloadPEFile(void * ptr);
 
 #ifdef UNICODE
 #define LoadLibrary LoadLibraryW
@@ -3895,9 +3928,9 @@ PALIMPORT
 HANDLE
 PALAPI
 HeapCreate(
-	       IN DWORD flOptions,
-	       IN SIZE_T dwInitialSize,
-	       IN SIZE_T dwMaximumSize);
+         IN DWORD flOptions,
+         IN SIZE_T dwInitialSize,
+         IN SIZE_T dwMaximumSize);
 
 PALIMPORT
 LPVOID
@@ -4429,10 +4462,10 @@ int
 PALAPI
 CompareStringOrdinal(
     IN LPCWSTR lpString1, 
-	IN int cchCount1, 
-	IN LPCWSTR lpString2, 
-	IN int cchCount2, 
-	IN BOOL bIgnoreCase);
+  IN int cchCount1, 
+  IN LPCWSTR lpString2, 
+  IN int cchCount2, 
+  IN BOOL bIgnoreCase);
 
 typedef struct _nlsversioninfoex { 
   DWORD  dwNLSVersionInfoSize; 
@@ -4447,15 +4480,15 @@ int
 PALAPI
 FindNLSStringEx(
     IN LPCWSTR lpLocaleName, 
-	IN DWORD dwFindNLSStringFlags, 
-	IN LPCWSTR lpStringSource, 
-	IN int cchSource, 
+  IN DWORD dwFindNLSStringFlags, 
+  IN LPCWSTR lpStringSource, 
+  IN int cchSource, 
     IN LPCWSTR lpStringValue, 
-	IN int cchValue, 
-	OUT LPINT pcchFound, 
-	IN LPNLSVERSIONINFOEX lpVersionInformation, 
-	IN LPVOID lpReserved, 
-	IN LPARAM lParam );
+  IN int cchValue, 
+  OUT LPINT pcchFound, 
+  IN LPNLSVERSIONINFOEX lpVersionInformation, 
+  IN LPVOID lpReserved, 
+  IN LPARAM lParam );
 
 typedef enum {
     COMPARE_STRING = 0x0001,
@@ -4466,10 +4499,10 @@ BOOL
 PALAPI
 IsNLSDefinedString(
     IN NLS_FUNCTION Function, 
-	IN DWORD dwFlags, 
-	IN LPNLSVERSIONINFOEX lpVersionInfo, 
-	IN LPCWSTR lpString, 
-	IN int cchStr );
+  IN DWORD dwFlags, 
+  IN LPNLSVERSIONINFOEX lpVersionInfo, 
+  IN LPCWSTR lpString, 
+  IN int cchStr );
 
 
 PALIMPORT
@@ -4495,7 +4528,7 @@ int
 PALAPI
 GetSystemDefaultLocaleName(
     OUT LPWSTR lpLocaleName, 
-	IN int cchLocaleName);
+  IN int cchLocaleName);
 
 #ifdef UNICODE
 #define GetLocaleInfo GetLocaleInfoW
@@ -6073,12 +6106,33 @@ typedef struct {
 
 PALIMPORT div_t div(int numer, int denom);
 
+#if defined(_DEBUG)
+
+/*++
+Function:
+PAL_memcpy
+
+Overlapping buffer-safe version of memcpy.
+See MSDN doc for memcpy
+--*/
+EXTERN_C
+PALIMPORT
+void *PAL_memcpy (void *dest, const void *src, size_t count);
+
 PALIMPORT void * __cdecl memcpy(void *, const void *, size_t);
+
+#define memcpy PAL_memcpy
+#define IS_PAL_memcpy 1
+#define TEST_PAL_DEFERRED(def) IS_##def
+#define IS_REDEFINED_IN_PAL(def) TEST_PAL_DEFERRED(def)
+#else //defined(_DEBUG)
+PALIMPORT void * __cdecl memcpy(void *, const void *, size_t);
+#endif //defined(_DEBUG)
 PALIMPORT int    __cdecl memcmp(const void *, const void *, size_t);
 PALIMPORT void * __cdecl memset(void *, int, size_t);
 PALIMPORT void * __cdecl memmove(void *, const void *, size_t);
 PALIMPORT void * __cdecl memchr(const void *, int, size_t);
-
+PALIMPORT long long int __cdecl atoll(const char *);
 PALIMPORT size_t __cdecl strlen(const char *);
 PALIMPORT int __cdecl strcmp(const char*, const char *);
 PALIMPORT int __cdecl strncmp(const char*, const char *, size_t);
@@ -6722,12 +6776,19 @@ public:
 };
 
 typedef VOID (PALAPI *PHARDWARE_EXCEPTION_HANDLER)(PAL_SEHException* ex);
+typedef DWORD (PALAPI *PGET_GCMARKER_EXCEPTION_CODE)(LPVOID ip);
 
 PALIMPORT
 VOID
 PALAPI
 PAL_SetHardwareExceptionHandler(
     IN PHARDWARE_EXCEPTION_HANDLER exceptionHandler);
+
+PALIMPORT
+VOID
+PALAPI
+PAL_SetGetGcMarkerExceptionCode(
+    IN PGET_GCMARKER_EXCEPTION_CODE getGcMarkerExceptionCode);
 
 //
 // This holder is used to indicate that a hardware
@@ -6744,6 +6805,11 @@ public:
     static bool IsEnabled();
 };
 
+//
+// NOTE: Catching hardware exceptions are only enabled in the DAC and SOS 
+// builds. A hardware exception in coreclr code will fail fast/terminate
+// the process.
+//
 #ifdef FEATURE_ENABLE_HARDWARE_EXCEPTIONS
 #define HardwareExceptionHolder CatchHardwareExceptionHolder __catchHardwareException;
 #else
@@ -6760,7 +6826,7 @@ extern "C++" {
 // filter to be called during the first pass to better emulate SEH
 // the xplat platforms that only have C++ exception support.
 //
-class NativeExceptionHolderBase : CatchHardwareExceptionHolder
+class NativeExceptionHolderBase
 {
     // Save the address of the holder head so the destructor 
     // doesn't have access the slow (on Linux) TLS value again.
@@ -6830,6 +6896,22 @@ public:
     }
 };
 
+// This is a native exception holder that doesn't catch any exceptions.
+class NativeExceptionHolderNoCatch : public NativeExceptionHolderBase
+{
+
+public:
+    NativeExceptionHolderNoCatch()
+        : NativeExceptionHolderBase()
+    {
+    }
+
+    virtual EXCEPTION_DISPOSITION InvokeFilter(PAL_SEHException& ex)
+    {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+};
+
 //
 // This factory class for the native exception holder is necessary because
 // templated functions don't need the explicit type parameter and can infer
@@ -6870,6 +6952,7 @@ public:
     };                                                                          \
     try                                                                         \
     {                                                                           \
+        HardwareExceptionHolder                                                 \
         auto __exceptionHolder = NativeExceptionHolderFactory::CreateHolder(&exceptionFilter); \
         __exceptionHolder.Push();                                               \
         tryBlock(__param);                                                      \

@@ -29,7 +29,7 @@ namespace System.Runtime.Loader
         
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
-        private static extern IntPtr InitializeAssemblyLoadContext(IntPtr ptrAssemblyLoadContext);
+        private static extern IntPtr InitializeAssemblyLoadContext(IntPtr ptrAssemblyLoadContext, bool fRepresentsTPALoadContext);
         
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
@@ -45,26 +45,37 @@ namespace System.Runtime.Loader
         internal static extern void InternalStartProfile(string profile, IntPtr ptrNativeAssemblyLoadContext);
 #endif // FEATURE_MULTICOREJIT
 
-        [System.Security.SecuritySafeCritical]
         protected AssemblyLoadContext()
+        {
+            // Initialize the ALC representing non-TPA LoadContext
+            InitializeLoadContext(false);
+        }
+
+        internal AssemblyLoadContext(bool fRepresentsTPALoadContext)
+        {
+            // Initialize the ALC representing TPA LoadContext
+            InitializeLoadContext(fRepresentsTPALoadContext);
+        }
+        
+        [System.Security.SecuritySafeCritical]
+        void InitializeLoadContext(bool fRepresentsTPALoadContext)
         {
             // Initialize the VM side of AssemblyLoadContext if not already done.
             GCHandle gchALC = GCHandle.Alloc(this);
             IntPtr ptrALC = GCHandle.ToIntPtr(gchALC);
-            m_pNativeAssemblyLoadContext = InitializeAssemblyLoadContext(ptrALC);
+            m_pNativeAssemblyLoadContext = InitializeAssemblyLoadContext(ptrALC, fRepresentsTPALoadContext);
+
+            // Initialize the resolve event handler to be null by default
+            Resolving = null;
         }
 
-        internal AssemblyLoadContext(bool fDummy)
-        {
-        }
-        
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static extern void LoadFromPath(IntPtr ptrNativeAssemblyLoadContext, string ilPath, string niPath, ObjectHandleOnStack retAssembly);
         
         // These are helpers that can be used by AssemblyLoadContext derivations.
         // They are used to load assemblies in DefaultContext.
-        protected Assembly LoadFromAssemblyPath(string assemblyPath)
+        public Assembly LoadFromAssemblyPath(string assemblyPath)
         {
             if (assemblyPath == null)
             {
@@ -81,7 +92,7 @@ namespace System.Runtime.Loader
             return loadedAssembly;
         }
         
-        protected Assembly LoadFromNativeImagePath(string nativeImagePath, string assemblyPath)
+        public Assembly LoadFromNativeImagePath(string nativeImagePath, string assemblyPath)
         {
             if (nativeImagePath == null)
             {
@@ -112,12 +123,12 @@ namespace System.Runtime.Loader
             return loadedAssembly;
         }
         
-        protected Assembly LoadFromStream(Stream assembly)
+        public Assembly LoadFromStream(Stream assembly)
         {
             return LoadFromStream(assembly, null);
         }
         
-        protected Assembly LoadFromStream(Stream assembly, Stream assemblySymbols)
+        public Assembly LoadFromStream(Stream assembly, Stream assemblySymbols)
         {
             if (assembly == null)
             {
@@ -169,12 +180,41 @@ namespace System.Runtime.Loader
             return context.LoadFromAssemblyName(assemblyName);
         }
         
+        private Assembly GetFirstResolvedAssembly(AssemblyName assemblyName)
+        {
+            Assembly resolvedAssembly = null;
+
+            Func<AssemblyLoadContext, AssemblyName, Assembly> assemblyResolveHandler = Resolving;
+
+            if (assemblyResolveHandler != null)
+            {
+                // Loop through the event subscribers and return the first non-null Assembly instance
+                Delegate [] arrSubscribers = assemblyResolveHandler.GetInvocationList();
+                for(int i = 0; i < arrSubscribers.Length; i++)
+                {
+                    resolvedAssembly = ((Func<AssemblyLoadContext, AssemblyName, Assembly>)arrSubscribers[i])(this, assemblyName);
+                    if (resolvedAssembly != null)
+                    {
+                        break;
+                    }
+                }
+            }
+            
+            return resolvedAssembly;
+        }
+
         public Assembly LoadFromAssemblyName(AssemblyName assemblyName)
         {
             // AssemblyName is mutable. Cache the expected name before anybody gets a chance to modify it.
             string requestedSimpleName = assemblyName.Name;
  
             Assembly assembly = Load(assemblyName);
+            if (assembly == null)
+            {
+                // Invoke the AssemblyResolve event callbacks if wired up
+                assembly = GetFirstResolvedAssembly(assemblyName);
+            }
+
             if (assembly == null)
             {
                 throw new FileNotFoundException(Environment.GetResourceString("IO.FileLoad"), requestedSimpleName);
@@ -347,6 +387,8 @@ namespace System.Runtime.Loader
 #endif // FEATURE_MULTICOREJI
         }
         
+        public event Func<AssemblyLoadContext, AssemblyName, Assembly> Resolving;
+
         // Contains the reference to VM's representation of the AssemblyLoadContext
         private IntPtr m_pNativeAssemblyLoadContext;
         
@@ -359,14 +401,16 @@ namespace System.Runtime.Loader
     [System.Security.SecuritySafeCritical]
     class AppPathAssemblyLoadContext : AssemblyLoadContext
     {
-        internal AppPathAssemblyLoadContext() : base(false)
+        internal AppPathAssemblyLoadContext() : base(true)
         {
         }
 
         [System.Security.SecuritySafeCritical]  
         protected override Assembly Load(AssemblyName assemblyName)
         {
-            return Assembly.Load(assemblyName);
+            // We were loading an assembly into TPA ALC that was not found on TPA list. As a result we are here.
+            // Returning null will result in the AssemblyResolve event subscribers to be invoked to help resolve the assembly.
+            return null;
         }
     }
 }

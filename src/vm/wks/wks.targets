@@ -72,6 +72,7 @@
     <CppCompile Include="$(VmSourcesDir)\decodeMD.cpp" />
     <CppCompile Include="$(VmSourcesDir)\DebugDebugger.cpp" />
     <CppCompile Include="$(VmSourcesDir)\DebugInfoStore.cpp" />
+    <CppCompile Include="$(VmSourcesDir)\disassembler.cpp" />
     <CppCompile Include="$(VmSourcesDir)\DynamicMethod.cpp" />
     <CppCompile Include="$(VmSourcesDir)\ecall.cpp" />
     <CppCompile Include="$(VmSourcesDir)\eeconfig.cpp" />
@@ -103,7 +104,8 @@
     <CppCompile Include="$(VmSourcesDir)\FusionSink.cpp" Condition="'$(FeatureFusion)' == 'true'"/>
     <CppCompile Include="$(VmSourcesDir)\FusionBind.cpp" Condition="'$(FeatureFusion)' == 'true'"/>
     <CppCompile Include="$(VmSourcesDir)\GCDecode.cpp" />
-    <CppCompile Include="$(VmSourcesDir)\gcenv.cpp" />
+    <CppCompile Include="$(VmSourcesDir)\gcenv.ee.cpp" />
+    <CppCompile Include="$(VmSourcesDir)\gcenv.os.cpp" />
     <CppCompile Include="$(VmSourcesDir)\gchelpers.cpp" />
     <CppCompile Include="$(VmSourcesDir)\gchost.cpp" />
     <CppCompile Include="$(VmSourcesDir)\genericdict.cpp" />

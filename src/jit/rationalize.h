@@ -172,6 +172,15 @@ private:
     static void RewriteLdObj(GenTreePtr* ppTree, Compiler::fgWalkData* data);
     static void RewriteCopyBlk(GenTreePtr* ppTree, Compiler::fgWalkData* data);
     static void RewriteInitBlk(GenTreePtr* ppTree, Compiler::fgWalkData* data);
+
+    // Intrinsic related    
+    static void RewriteNodeAsCall(GenTreePtr* ppTree, Compiler::fgWalkData* data,
+        CORINFO_METHOD_HANDLE callHnd,
+#ifdef FEATURE_READYTORUN_COMPILER
+        CORINFO_CONST_LOOKUP entryPoint,
+#endif
+        GenTreeArgList* args);
+    static void RewriteIntrinsicAsUserCall(GenTreePtr* ppTree, Compiler::fgWalkData* data);    
 };
 
 inline Rationalizer::Rationalizer(Compiler* _comp)

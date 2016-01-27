@@ -18,8 +18,14 @@
 
 #include "gcenv.structs.h"
 #include "gcenv.base.h"
+#include "gcenv.ee.h"
+#include "gcenv.os.h"
+#include "gcenv.interlocked.h"
+#include "gcenv.interlocked.inl"
 #include "gcenv.object.h"
 #include "gcenv.sync.h"
+
+#define MAX_LONGPATH 1024
 
 //
 // Thread

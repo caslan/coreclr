@@ -69,7 +69,7 @@ Return
 Notes :
     This function takes ownership of lpwstrCmdLine, but not of lpwstrFullPath
 --*/
-BOOL  PROCCreateInitialProcess(LPWSTR lpwstrCmdLine, LPWSTR lpwstrFullPath);
+BOOL PROCCreateInitialProcess(LPWSTR lpwstrCmdLine, LPWSTR lpwstrFullPath);
 
 /*++
 Function:
@@ -121,14 +121,26 @@ VOID PROCProcessUnlock(VOID);
 
 /*++
 Function:
-  PROCCleanupProcess
+  PROCAbort()
+
+  Aborts the process after calling the shutdown cleanup handler. This function
+  should be called instead of calling abort() directly.
   
-  Do all cleanup work for TerminateProcess, but don't terminate the process.
-  If bTerminateUnconditionally is TRUE, we exit as quickly as possible.
+  Does not return
+--*/
+PAL_NORETURN 
+void PROCAbort();
+
+/*++
+Function:
+  PROCShutdownProcess
+  
+  Calls the abort handler to do any shutdown cleanup. Call be
+  called from the unhandled native exception handler.
 
 (no return value)
 --*/
-void PROCCleanupProcess(BOOL bTerminateUnconditionally);
+void PROCShutdownProcess();
 
 /*++
 Function:
@@ -140,19 +152,6 @@ Return
   TRUE if it succeeded, FALSE otherwise
 --*/
 BOOL InitializeFlushProcessWriteBuffers();
-
-#if HAVE_MACH_EXCEPTIONS
-/*++
-Function:
-  PROCThreadFromMachPort
-  
-  Given a Mach thread port, return the CPalThread associated with it.
-
-Return
-    CPalThread*
---*/
-CorUnix::CPalThread *PROCThreadFromMachPort(mach_port_t hThread);
-#endif // HAVE_MACH_EXCEPTIONS
 
 #ifdef __cplusplus
 }

@@ -84,6 +84,7 @@ if(WIN32)
     ntdll.lib
   )
 else(WIN32)
+  add_definitions(-DFEATURE_ENABLE_HARDWARE_EXCEPTIONS)
   add_definitions(-DPAL_STDCPP_COMPAT=1)
   add_compile_options(-Wno-null-arithmetic)
   add_compile_options(-Wno-format)
@@ -131,7 +132,7 @@ endif()
 
 list(APPEND SOS_SOURCES ${SOS_SOURCES_ARCH})
 
-add_library(sos SHARED ${SOS_SOURCES})
+add_library_clr(sos SHARED ${SOS_SOURCES})
 add_dependencies(sos mscordaccore)
 target_link_libraries(sos ${SOS_LIBRARY})
 

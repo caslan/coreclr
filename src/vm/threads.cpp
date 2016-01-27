@@ -680,8 +680,8 @@ DWORD Thread::StartThread()
 
     DWORD dwRetVal = (DWORD) -1;
 #ifdef _DEBUG
-    _ASSERTE (m_Creater.IsSameThread());
-    m_Creater.ResetThreadId();
+    _ASSERTE (m_Creater.IsCurrentThread());
+    m_Creater.Clear();
 #endif
 #ifdef FEATURE_INCLUDE_ALL_INTERFACES
     HostComHolder<IHostTask> pHostTask(GetHostTaskWithAddRef());
@@ -1526,11 +1526,11 @@ AppDomain* STDCALL GetAppDomainGeneric()
 // FLS getter to avoid unnecessary indirection via execution engine. It will be used if we get high TLS slot
 // from the OS where we cannot use the fast optimized assembly helpers. (It happens pretty often in hosted scenarios).
 //
-VOID * ClrFlsGetBlockDirect()
+LPVOID* ClrFlsGetBlockDirect()
 {
     LIMITED_METHOD_CONTRACT;
 
-    return UnsafeTlsGetValue(CExecutionEngine::GetTlsIndex());
+    return (LPVOID*)UnsafeTlsGetValue(CExecutionEngine::GetTlsIndex());
 }
 
 extern "C" void * ClrFlsGetBlock();
@@ -1660,10 +1660,10 @@ void InitThreadManager()
     CExecutionEngine::CheckThreadState(0, FALSE);
 
     DWORD masterSlotIndex = CExecutionEngine::GetTlsIndex();
-    POPTIMIZEDTLSGETTER pGetter = MakeOptimizedTlsGetter(masterSlotIndex, (PVOID)ClrFlsGetBlock, TLS_GETTER_MAX_SIZE);
+    CLRFLSGETBLOCK pGetter = (CLRFLSGETBLOCK)MakeOptimizedTlsGetter(masterSlotIndex, (PVOID)ClrFlsGetBlock, TLS_GETTER_MAX_SIZE);
     __ClrFlsGetBlock = pGetter ? pGetter : ClrFlsGetBlockDirect;
 #else
-    __ClrFlsGetBlock = (POPTIMIZEDTLSGETTER) CExecutionEngine::GetTlsData;
+    __ClrFlsGetBlock = CExecutionEngine::GetTlsData;
 #endif // FEATURE_IMPLICIT_TLS
 
     IfFailThrow(Thread::CLRSetThreadStackGuarantee(Thread::STSGuarantee_Force));
@@ -1922,7 +1922,7 @@ Thread::Thread()
 #ifdef _DEBUG
     dbg_m_cSuspendedThreads = 0;
     dbg_m_cSuspendedThreadsWithoutOSLock = 0;
-    m_Creater.ResetThreadId();
+    m_Creater.Clear();
     m_dwUnbreakableLockCount = 0;
 #endif
 
@@ -3132,7 +3132,7 @@ BOOL Thread::CreateNewOSThread(SIZE_T sizeToCommitOrReserve, LPTHREAD_START_ROUT
     FastInterlockIncrement(&ThreadStore::s_pThreadStore->m_PendingThreadCount);
 
 #ifdef _DEBUG
-    m_Creater.SetThreadId();
+    m_Creater.SetToCurrentThread();
 #endif
 
     return TRUE;
@@ -3188,7 +3188,7 @@ BOOL Thread::CreateNewHostTask(SIZE_T stackSize, LPTHREAD_START_ROUTINE start, v
     FastInterlockIncrement(&ThreadStore::s_pThreadStore->m_PendingThreadCount);
 
 #ifdef _DEBUG
-    m_Creater.SetThreadId();
+    m_Creater.SetToCurrentThread();
 #endif
 
     return TRUE;
@@ -7924,7 +7924,6 @@ BOOL Thread::CanResetStackTo(LPCVOID stackPointer)
         return FALSE;
     }
 }
-#endif // FEATURE_STACK_PROBE
 
 /*
  * IsStackSpaceAvailable
@@ -7974,6 +7973,8 @@ BOOL Thread::IsStackSpaceAvailable(float numPages)
 
     return TRUE;
 }
+
+#endif // FEATURE_STACK_PROBE
 
 /*
  * GetStackGuarantee
@@ -10633,8 +10634,10 @@ TADDR Thread::GetStaticFieldAddrNoCreate(FieldDesc *pFD, PTR_AppDomain pDomain)
     if (pFD->IsByValue())
     {
         _ASSERTE(result != NULL);
-        result = dac_cast<TADDR>
-            ((* PTR_UNCHECKED_OBJECTREF(result))->GetData());
+        PTR_Object obj = *PTR_UNCHECKED_OBJECTREF(result);
+        if (obj == NULL)
+            return NULL;
+        result = dac_cast<TADDR>(obj->GetData());
     }
 
     return result;
@@ -11202,7 +11205,7 @@ BOOL ThreadStore::HoldingThreadStore(Thread *pThread)
     }
     else
     {
-        return (s_pThreadStore->m_holderthreadid.IsSameThread());
+        return (s_pThreadStore->m_holderthreadid.IsCurrentThread());
     }
 }
 

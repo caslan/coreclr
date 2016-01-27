@@ -2505,89 +2505,109 @@ ThreadInitializationRoutine(
     return NO_ERROR;
 }
 
-// Get base address of this thread's stack
-// Can be called only for the current thread.
+// Get base address of the current thread's stack
 void *
 CPalThread::GetStackBase()
+{
+    void* stackBase;
+#ifdef _TARGET_MAC64
+    // This is a Mac specific method
+    stackBase = pthread_get_stackaddr_np(pthread_self());
+#else
+    pthread_attr_t attr;
+    void* stackAddr;
+    size_t stackSize;
+    int status;
+
+    pthread_t thread = pthread_self();
+
+    status = pthread_attr_init(&attr);
+    _ASSERT_MSG(status == 0, "pthread_attr_init call failed");
+
+#if HAVE_PTHREAD_ATTR_GET_NP
+    status = pthread_attr_get_np(thread, &attr);
+#elif HAVE_PTHREAD_GETATTR_NP
+    status = pthread_getattr_np(thread, &attr);
+#else
+#error Dont know how to get thread attributes on this platform!
+#endif
+    _ASSERT_MSG(status == 0, "pthread_getattr_np call failed");
+
+    status = pthread_attr_getstack(&attr, &stackAddr, &stackSize);
+    _ASSERT_MSG(status == 0, "pthread_attr_getstack call failed");
+
+    status = pthread_attr_destroy(&attr);
+    _ASSERT_MSG(status == 0, "pthread_attr_destroy call failed");
+
+    stackBase = (void*)((size_t)stackAddr + stackSize);
+#endif
+
+    return stackBase;
+}
+
+// Get limit address of the current thread's stack
+void *
+CPalThread::GetStackLimit()
+{
+    void* stackLimit;
+#ifdef _TARGET_MAC64
+    // This is a Mac specific method
+    stackLimit = ((BYTE *)pthread_get_stackaddr_np(pthread_self()) -
+                   pthread_get_stacksize_np(pthread_self()));
+#else
+    pthread_attr_t attr;
+    size_t stackSize;
+    int status;
+
+    pthread_t thread = pthread_self();
+
+    status = pthread_attr_init(&attr);
+    _ASSERT_MSG(status == 0, "pthread_attr_init call failed");
+
+#if HAVE_PTHREAD_ATTR_GET_NP
+    status = pthread_attr_get_np(thread, &attr);
+#elif HAVE_PTHREAD_GETATTR_NP
+    status = pthread_getattr_np(thread, &attr);
+#else
+#error Dont know how to get thread attributes on this platform!
+#endif
+    _ASSERT_MSG(status == 0, "pthread_getattr_np call failed");
+
+    status = pthread_attr_getstack(&attr, &stackLimit, &stackSize);
+    _ASSERT_MSG(status == 0, "pthread_attr_getstack call failed");
+
+    status = pthread_attr_destroy(&attr);
+    _ASSERT_MSG(status == 0, "pthread_attr_destroy call failed");
+#endif
+
+    return stackLimit;
+}
+
+// Get cached base address of this thread's stack
+// Can be called only for the current thread.
+void *
+CPalThread::GetCachedStackBase()
 {
     _ASSERT_MSG(this == InternalGetCurrentThread(), "CPalThread::GetStackBase called from foreign thread");
 
     if (m_stackBase == NULL)
     {
-#ifdef _TARGET_MAC64
-        // This is a Mac specific method
-        m_stackBase = pthread_get_stackaddr_np(pthread_self());
-#else
-        pthread_attr_t attr;
-        void* stackAddr;
-        size_t stackSize;
-        int status;
-
-        pthread_t thread = pthread_self();
-
-        status = pthread_attr_init(&attr);
-        _ASSERT_MSG(status == 0, "pthread_attr_init call failed");
-
-#if HAVE_PTHREAD_ATTR_GET_NP
-        status = pthread_attr_get_np(thread, &attr);
-#elif HAVE_PTHREAD_GETATTR_NP
-        status = pthread_getattr_np(thread, &attr);
-#else
-#error Dont know how to get thread attributes on this platform!
-#endif
-        _ASSERT_MSG(status == 0, "pthread_getattr_np call failed");
-
-        status = pthread_attr_getstack(&attr, &stackAddr, &stackSize);
-        _ASSERT_MSG(status == 0, "pthread_attr_getstack call failed");
-
-        status = pthread_attr_destroy(&attr);
-        _ASSERT_MSG(status == 0, "pthread_attr_destroy call failed");
-
-        m_stackBase = (void*)((size_t)stackAddr + stackSize);
-#endif
+        m_stackBase = GetStackBase();
     }
 
     return m_stackBase;
 }
 
-// Get limit address of this thread's stack.
+// Get cached limit address of this thread's stack.
 // Can be called only for the current thread.
 void *
-CPalThread::GetStackLimit()
+CPalThread::GetCachedStackLimit()
 {
-    _ASSERT_MSG(this == InternalGetCurrentThread(), "CPalThread::GetStackLimit called from foreign thread");
+    _ASSERT_MSG(this == InternalGetCurrentThread(), "CPalThread::GetCachedStackLimit called from foreign thread");
 
     if (m_stackLimit == NULL)
     {
-#ifdef _TARGET_MAC64
-        // This is a Mac specific method
-        m_stackLimit = ((BYTE *)pthread_get_stackaddr_np(pthread_self()) -
-                       pthread_get_stacksize_np(pthread_self()));
-#else
-        pthread_attr_t attr;
-        size_t stackSize;
-        int status;
-
-        pthread_t thread = pthread_self();
-
-        status = pthread_attr_init(&attr);
-        _ASSERT_MSG(status == 0, "pthread_attr_init call failed");
-
-#if HAVE_PTHREAD_ATTR_GET_NP
-        status = pthread_attr_get_np(thread, &attr);
-#elif HAVE_PTHREAD_GETATTR_NP
-        status = pthread_getattr_np(thread, &attr);
-#else
-#error Dont know how to get thread attributes on this platform!
-#endif
-        _ASSERT_MSG(status == 0, "pthread_getattr_np call failed");
-
-        status = pthread_attr_getstack(&attr, &m_stackLimit, &stackSize);
-        _ASSERT_MSG(status == 0, "pthread_attr_getstack call failed");
-
-        status = pthread_attr_destroy(&attr);
-        _ASSERT_MSG(status == 0, "pthread_attr_destroy call failed");
-#endif
+        m_stackLimit = GetStackLimit();
     }
 
     return m_stackLimit;
@@ -2598,7 +2618,7 @@ PALAPI
 PAL_GetStackBase()
 {
     CPalThread* thread = InternalGetCurrentThread();
-    return thread->GetStackBase();
+    return thread->GetCachedStackBase();
 }
 
 void *
@@ -2606,7 +2626,7 @@ PALAPI
 PAL_GetStackLimit()
 {
     CPalThread* thread = InternalGetCurrentThread();
-    return thread->GetStackLimit();
+    return thread->GetCachedStackLimit();
 }
 
 PAL_ERROR InjectActivationInternal(CorUnix::CPalThread* pThread);
@@ -2696,53 +2716,22 @@ PAL_InjectActivation(
 #if HAVE_MACH_EXCEPTIONS
 
 extern mach_port_t s_ExceptionPort;
-extern mach_port_t s_TopExceptionPort;
 
 // Returns a pointer to the handler node that should be initialized next. The first time this is called for a
 // thread the bottom node will be returned. Thereafter the top node will be returned. Also returns the Mach
 // exception port that should be registered.
-CorUnix::CThreadMachExceptionHandlerNode *CorUnix::CThreadMachExceptionHandlers::GetNodeForInitialization(mach_port_t *pExceptionPort)
+CorUnix::CThreadMachExceptionHandlerNode *CorUnix::CThreadMachExceptionHandlers::GetNodeForInitialization()
 {
-    if (m_bottom.m_nPorts == -1)
-    {
-        // Thread hasn't registered handlers before. Return the bottom handler node and exception port.
-        *pExceptionPort = s_ExceptionPort;
-        return &m_bottom;
-    }
-    else
-    {
-        // Othewise use the top handler node and register the top exception port.
-        *pExceptionPort = s_TopExceptionPort;
-        return &m_top;
-    }
+    return &m_node;
 }
 
 // Get handler details for a given type of exception. If successful the structure pointed at by pHandler is
-// filled in and true is returned. Otherwise false is returned. The fTopException argument indicates whether
-// the handlers found at the time of a call to ICLRRuntimeHost2::RegisterMacEHPort() should be searched (if
-// not, or a handler is not found there, we'll fallback to looking at the handlers discovered at the point
-// when the CLR first saw this thread).
-bool CorUnix::CThreadMachExceptionHandlers::GetHandler(exception_type_t eException,
-                                                       bool fTopException,
-                                                       CorUnix::MachExceptionHandler *pHandler)
+// filled in and true is returned. Otherwise false is returned.
+bool CorUnix::CThreadMachExceptionHandlers::GetHandler(exception_type_t eException, CorUnix::MachExceptionHandler *pHandler)
 {
     exception_mask_t bmExceptionMask = (1 << eException);
-    int idxHandler = -1;
-    CThreadMachExceptionHandlerNode *pNode = NULL;
-
-    // Check top handlers first if we've been asked to and they have been initialized.
-    if (fTopException && m_top.m_nPorts != -1)
-    {
-        pNode = &m_top;
-        idxHandler = GetIndexOfHandler(bmExceptionMask, pNode);
-    }
-
-    // If we haven't identified a handler yet continue looking with the bottom handlers.
-    if (idxHandler == -1)
-    {
-        pNode = &m_bottom;
-        idxHandler = GetIndexOfHandler(bmExceptionMask, pNode);
-    }
+    CThreadMachExceptionHandlerNode *pNode = &m_node;
+    int idxHandler = GetIndexOfHandler(bmExceptionMask, pNode);
 
     // Did we find a handler?
     if (idxHandler == -1)

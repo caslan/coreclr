@@ -195,6 +195,7 @@
 #include "eemessagebox.h"
 #include "finalizerthread.h"
 #include "threadsuspend.h"
+#include "disassembler.h"
 
 #ifndef FEATURE_PAL
 #include "dwreport.h"
@@ -983,6 +984,23 @@ void EEStartupHelper(COINITIEE fFlags)
         }
 #endif
 
+#if USE_DISASSEMBLER
+        if ((g_pConfig->GetGCStressLevel() & (EEConfig::GCSTRESS_INSTR_JIT | EEConfig::GCSTRESS_INSTR_NGEN)) != 0)
+        {
+            Disassembler::StaticInitialize();
+            if (!Disassembler::IsAvailable())
+            {
+#ifdef HAVE_GCCOVER
+#ifdef _DEBUG
+                printf("External disassembler is not available. Disabling GCStress for GCSTRESS_INSTR_JIT and GCSTRESS_INSTR_NGEN.\n");
+#endif // _DEBUG
+                g_pConfig->SetGCStressLevel(
+                    g_pConfig->GetGCStressLevel() & ~(EEConfig::GCSTRESS_INSTR_JIT | EEConfig::GCSTRESS_INSTR_NGEN));
+#endif // HAVE_GCCOVER
+            }
+        }
+#endif // USE_DISASSEMBLER
+
         // Monitors, Crsts, and SimpleRWLocks all use the same spin heuristics
         // Cache the (potentially user-overridden) values now so they are accessible from asm routines
         InitializeSpinConstants();
@@ -1350,6 +1368,9 @@ ErrExit: ;
         // for minimal impact we won't update hr for regular builds
         hr = GET_EXCEPTION()->GetHR();
         _ASSERTE(FAILED(hr));
+        StackSString exceptionMessage;
+        GET_EXCEPTION()->GetMessage(exceptionMessage);
+        fprintf(stderr, "%S\n", exceptionMessage.GetUnicode());
 #endif // CROSSGEN_COMPILE
     }
     EX_END_CATCH(RethrowTerminalExceptionsWithInitCheck)
@@ -1952,6 +1973,12 @@ void STDMETHODCALLTYPE EEShutDownHelper(BOOL fIsDllUnloading)
         
         FastInterlockExchange((LONG*)&g_fForbidEnterEE, TRUE);
 
+#if defined(DEBUGGING_SUPPORTED) && defined(FEATURE_PAL)
+        // Terminate the debugging services in the first phase for PAL based platforms
+        // because EEDllMain's DLL_PROCESS_DETACH is NOT going to be called.
+        TerminateDebugger();
+#endif // DEBUGGING_SUPPORTED && FEATURE_PAL
+
         if (g_fProcessDetach)
         {
             ThreadStore::TrapReturningThreads(TRUE);
@@ -2157,6 +2184,10 @@ part2:
                 //
                 // 2) Only when the runtime is processing DLL_PROCESS_DETACH. 
                 CLRRemoveVectoredHandlers();
+
+#if USE_DISASSEMBLER
+                Disassembler::StaticClose();
+#endif // USE_DISASSEMBLER
 
 #ifdef _DEBUG
                 if (_DbgBreakCount)
@@ -2445,7 +2476,7 @@ void STDMETHODCALLTYPE EEShutDown(BOOL fIsDllUnloading)
         // Otherwise, this thread calls EEShutDownHelper directly.  First switch to
         // cooperative mode if this is a managed thread
 #endif
-        if (GetThread())
+    if (GetThread())
     {
         GCX_COOP();
         EEShutDownHelper(fIsDllUnloading);

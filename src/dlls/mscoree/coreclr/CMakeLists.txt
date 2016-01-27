@@ -44,7 +44,7 @@ endif (WIN32)
 
 add_definitions(-DFX_VER_INTERNALNAME_STR=CoreCLR.dll)
 
-add_library(coreclr
+add_library_clr(coreclr
     SHARED
     ${CLR_SOURCES}
 )
@@ -124,20 +124,32 @@ endif(CLR_CMAKE_PLATFORM_LINUX)
 target_link_libraries(coreclr ${CORECLR_LIBRARIES}) 
 
 if(WIN32)
-    add_dependencies(coreclr dactablegen)
-
     # Add dac table & debug resource to coreclr
     get_include_directories(INC_DIR)
     get_compile_definitions(PREPROCESS_DEFINITIONS)
     list(APPEND INC_DIR -I${CLR_DIR}/src/vm -I${CLR_DIR}/src/vm/${ARCH_SOURCES_DIR} -I${CLR_DIR}/src/debug/ee -I${CLR_DIR}/src/gc)
-    list(APPEND PREPROCESS_DEFINITIONS -DDACCESS_COMPILE -DDBG_TARGET_64BIT=1 -DDBG_TARGET_WIN64=1 -DDBG_TARGET_AMD64=1)
+    list(APPEND PREPROCESS_DEFINITIONS -DDACCESS_COMPILE -DDBG_TARGET_64BIT=1 -DDBG_TARGET_WIN64=1)
+
+    if (CLR_CMAKE_PLATFORM_ARCH_AMD64)
+        list(APPEND PREPROCESS_DEFINITIONS -DDBG_TARGET_AMD64=1)
+    elseif (CLR_CMAKE_PLATFORM_ARCH_ARM64)
+        list(APPEND PREPROCESS_DEFINITIONS -DDBG_TARGET_ARM64=1)
+    elseif (CLR_CMAKE_PLATFORM_ARCH_ARM)
+        list(APPEND PREPROCESS_DEFINITIONS -DDBG_TARGET_ARM=1)
+    elseif (CLR_CMAKE_PLATFORM_ARCH_I386)
+        list(APPEND PREPROCESS_DEFINITIONS -DDBG_TARGET_X86=1)
+    else()
+        clr_unknown_arch()
+    endif()
+
     add_custom_command(TARGET coreclr
         POST_BUILD
+        COMMAND ${CLR_DIR}/src/scripts/buildtools/restorebuildtools.bat
         COMMAND ${CMAKE_CXX_COMPILER} /P /EP /TP ${PREPROCESS_DEFINITIONS} ${INC_DIR} /Fi${CMAKE_CURRENT_BINARY_DIR}/daccess.i  ${CLR_DIR}/src/debug/daccess/daccess.cpp
-        COMMAND $<TARGET_FILE:dactablegen_exe> /dac:${CMAKE_CURRENT_BINARY_DIR}/daccess.i /pdb:${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/coreclr.pdb /dll:$<TARGET_FILE:coreclr> /bin:${CMAKE_CURRENT_BINARY_DIR}/wks.bin
-        COMMAND $<TARGET_FILE:InjectResource> /bin:${CMAKE_CURRENT_BINARY_DIR}/wks.bin /dll:$<TARGET_FILE:coreclr>
-        COMMAND $<TARGET_FILE:GenClrDebugResource> /dac:$<TARGET_FILE:mscordaccore> /dbi:$<TARGET_FILE:mscordbi> /sku:onecoreclr /out:${CMAKE_CURRENT_BINARY_DIR}/clrDebugResource.bin
-        COMMAND $<TARGET_FILE:InjectResource> /bin:${CMAKE_CURRENT_BINARY_DIR}/clrDebugResource.bin /dll:$<TARGET_FILE:coreclr> /name:CLRDEBUGINFO
+        COMMAND ${BuildToolsDir}/dactablegen.exe /dac:${CMAKE_CURRENT_BINARY_DIR}/daccess.i /pdb:${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/coreclr.pdb /dll:$<TARGET_FILE:coreclr> /bin:${CMAKE_CURRENT_BINARY_DIR}/wks.bin
+        COMMAND ${BuildToolsDir}/InjectResource.exe /bin:${CMAKE_CURRENT_BINARY_DIR}/wks.bin /dll:$<TARGET_FILE:coreclr>
+        COMMAND ${BuildToolsDir}/GenClrDebugResource.exe /dac:$<TARGET_FILE:mscordaccore> /dbi:$<TARGET_FILE:mscordbi> /sku:onecoreclr /out:${CMAKE_CURRENT_BINARY_DIR}/clrDebugResource.bin
+        COMMAND ${BuildToolsDir}/InjectResource.exe /bin:${CMAKE_CURRENT_BINARY_DIR}/clrDebugResource.bin /dll:$<TARGET_FILE:coreclr> /name:CLRDEBUGINFO
         COMMENT Add dactable & debug resources to coreclr
     )
 else()
@@ -155,4 +167,3 @@ install (TARGETS coreclr DESTINATION .)
 if(WIN32)
     install (FILES ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/coreclr.pdb DESTINATION PDB)
 endif(WIN32)
-
