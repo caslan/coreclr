@@ -86,6 +86,7 @@ class CordbInternalFrame;
 class CordbContext;
 class CordbThread;
 class CordbVariableHome;
+class CordbValueBreakpoint;
 
 #ifdef FEATURE_INTEROP_DEBUGGING
 class CordbUnmanagedThread;
@@ -146,6 +147,32 @@ extern HINSTANCE GetModuleInst();
 template <class T>
 class CordbSafeHashTable;
 
+
+typedef struct _DR7 *PDR7;
+typedef struct _DR7 {
+    DWORD       L0 : 1;
+    DWORD       G0 : 1;
+    DWORD       L1 : 1;
+    DWORD       G1 : 1;
+    DWORD       L2 : 1;
+    DWORD       G2 : 1;
+    DWORD       L3 : 1;
+    DWORD       G3 : 1;
+    DWORD       LE : 1;
+    DWORD       GE : 1;
+    DWORD       Pad1 : 3;
+    DWORD       GD : 1;
+    DWORD       Pad2 : 1;
+    DWORD       Pad3 : 1;
+    DWORD       Rwe0 : 2;
+    DWORD       Len0 : 2;
+    DWORD       Rwe1 : 2;
+    DWORD       Len1 : 2;
+    DWORD       Rwe2 : 2;
+    DWORD       Len2 : 2;
+    DWORD       Rwe3 : 2;
+    DWORD       Len3 : 2;
+} DR7;
 
 //---------------------------------------------------------------------------------------
 //
@@ -2925,6 +2952,7 @@ class CordbProcess :
     public ICorDebugProcess5,
     public ICorDebugProcess7,
     public ICorDebugProcess8,
+    public ICorDebugProcess9,
     public IDacDbiInterface::IAllocator,
     public IDacDbiInterface::IMetaDataLookup,
     public IProcessShimHooks
@@ -3135,6 +3163,8 @@ public:
     // ICorDebugProcess8
     //-----------------------------------------------------------
     COM_METHOD EnableExceptionCallbacksOutsideOfMyCode(BOOL enableExceptionsOutsideOfJMC);
+
+    COM_METHOD CreateBreakpoint(CORDB_ADDRESS address, ICorDebugValueBreakpoint **ppBreakpoint);
 
 #ifdef FEATURE_LEGACYNETCF_DBG_HOST_CONTROL
     // ---------------------------------------------------------------
@@ -3798,6 +3828,8 @@ private:
     // In that case, we can lazily initialize it in code:CordbProcess::CopyManagedEventFromTarget.
     // This is just used for backwards compat.
     CORDB_ADDRESS         m_clrInstanceId;
+
+    CordbSafeHashTable<CordbValueBreakpoint> m_dataBreakpoints;
 
     // List of things that get neutered on process exit and Continue respectively.
     NeuterList            m_ExitNeuterList;
@@ -8780,7 +8812,11 @@ class CordbValueBreakpoint : public CordbBreakpoint,
                              public ICorDebugValueBreakpoint
 {
 public:
-    CordbValueBreakpoint(CordbValue *pValue);
+    CordbValueBreakpoint(unsigned int index, CordbValue *pValue, CordbProcess* pProcess): CordbBreakpoint(pProcess, CordbBreakpointType::CBT_VALUE)
+    {
+        m_value = pValue;
+        m_index = index;
+    }
 
 
 #ifdef _DEBUG
@@ -8799,14 +8835,43 @@ public:
     {
         return (BaseRelease());
     }
-    COM_METHOD QueryInterface(REFIID riid, void **ppInterface);
+    COM_METHOD QueryInterface(REFIID riid, void **ppInterface)
+    {
+        if (riid == IID_ICorDebugValueBreakpoint)
+        {
+            *ppInterface = static_cast<ICorDebugValueBreakpoint*>(this);
+        }
+        else if (riid == IID_ICorDebugBreakpoint)
+        {
+            *ppInterface = static_cast<ICorDebugBreakpoint*>(static_cast<CordbBreakpoint*>(this));
+        }
+        else if (riid == IID_IUnknown)
+        {
+            *ppInterface = static_cast<IUnknown *>(static_cast<ICorDebugValueBreakpoint*>(this));
+        }
+        else
+        {
+            return E_NOINTERFACE;
+        }
+
+        ExternalAddRef();
+        return S_OK;
+    }
 
     //-----------------------------------------------------------
     // ICorDebugValueBreakpoint
     //-----------------------------------------------------------
 
-    COM_METHOD GetValue(ICorDebugValue **ppValue);
-    COM_METHOD Activate(BOOL bActive);
+    COM_METHOD GetValue(ICorDebugValue **ppValue)
+    {
+        return S_OK;
+    }
+
+    COM_METHOD Activate(BOOL bActive)
+    {
+        return S_OK;
+    }
+
     COM_METHOD IsActive(BOOL *pbActive)
     {
         VALIDATE_POINTER_TO_OBJECT(pbActive, BOOL *);
@@ -8818,10 +8883,20 @@ public:
     // Non-COM methods
     //-----------------------------------------------------------
 
-    void Disconnect();
+    void Disconnect()
+    {
+    }
+
+    unsigned int GetIndex()
+    {
+        return m_index;
+    }
 
 public:
     CordbValue       *m_value;
+
+private:
+    unsigned int     m_index;
 };
 
 /* ------------------------------------------------------------------------- *

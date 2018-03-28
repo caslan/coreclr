@@ -636,6 +636,7 @@ DEFINE_LSPTR_TYPE(class DebuggerJitInfo, LSPTR_DJI);
 DEFINE_LSPTR_TYPE(class DebuggerMethodInfo, LSPTR_DMI);
 DEFINE_LSPTR_TYPE(class MethodDesc,         LSPTR_METHODDESC);
 DEFINE_LSPTR_TYPE(class DebuggerBreakpoint, LSPTR_BREAKPOINT);
+DEFINE_LSPTR_TYPE(class DebuggerDataBreakpoint, LSPTR_DATA_BREAKPOINT);
 DEFINE_LSPTR_TYPE(class DebuggerEval,       LSPTR_DEBUGGEREVAL);
 DEFINE_LSPTR_TYPE(class DebuggerStepper,    LSPTR_STEPPER);
 
@@ -2004,6 +2005,11 @@ struct MSLAYOUT DebuggerIPCEvent
         {
             LSPTR_BREAKPOINT breakpointToken;
         } BreakpointSetErrorData;
+
+        struct MSLAYOUT
+        {
+            unsigned int index;
+        } DataBreakpointData;
 
         struct MSLAYOUT
         {
